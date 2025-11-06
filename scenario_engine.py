@@ -8,7 +8,7 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     
     Parameters:
     - trades_df: Original trade data
-    - market_df: Market OHLCV data
+    - market_df: Market OHLCV data (combined for all instruments)
     - scenario_params: Dictionary with scenario parameters
     - starting_capital: Initial capital
     
@@ -22,6 +22,9 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     trades = trades_df.copy()
     trades['entry_time'] = pd.to_datetime(trades['entry_time'])
     trades['exit_time'] = pd.to_datetime(trades['exit_time'])
+    
+    market_df = market_df.copy()
+    market_df['timestamp'] = pd.to_datetime(market_df['timestamp'])
     
     stop_loss_pct = scenario_params.get('stop_loss_pct', None)
     take_profit_pct = scenario_params.get('take_profit_pct', None)
@@ -40,12 +43,17 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         if weekday in exclude_days:
             continue
         
+        holding_minutes = trade['holding_minutes']
+        if min_hold_minutes is not None and holding_minutes < min_hold_minutes:
+            continue
+        
         modified_trade = trade.copy()
         
         instrument = trade['instrument']
         direction = trade['direction']
         entry_price = trade['entry_price']
-        original_exit_price = trade['exit_price']
+        entry_time = trade['entry_time']
+        original_exit_time = trade['exit_time']
         point_value = 5 if instrument == 'MES' else 2
         
         allocation_for_instrument = (mes_split_pct / 100) if instrument == 'MES' else (mnq_split_pct / 100)
@@ -53,62 +61,52 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         
         margin_requirement = 1000 if instrument == 'MES' else 1500
         contracts = max(1, int(capital_for_trade / margin_requirement))
-        
         modified_trade['contracts'] = contracts
         
-        exit_price = original_exit_price
-        exit_reason = 'Original'
+        forced_exit_time = original_exit_time
+        if max_hold_minutes is not None and holding_minutes > max_hold_minutes:
+            forced_exit_time = entry_time + pd.Timedelta(minutes=max_hold_minutes)
+            modified_trade['holding_minutes'] = max_hold_minutes
+        
+        stop_price = None
+        target_price = None
         
         if stop_loss_pct is not None:
             if direction == 'Long':
                 stop_price = entry_price * (1 - stop_loss_pct / 100)
-                if original_exit_price <= stop_price:
-                    exit_price = stop_price
-                    exit_reason = 'Stop Loss'
             else:
                 stop_price = entry_price * (1 + stop_loss_pct / 100)
-                if original_exit_price >= stop_price:
-                    exit_price = stop_price
-                    exit_reason = 'Stop Loss'
         
         if take_profit_pct is not None:
             if direction == 'Long':
                 target_price = entry_price * (1 + take_profit_pct / 100)
-                if original_exit_price >= target_price:
-                    exit_price = target_price
-                    exit_reason = 'Take Profit'
             else:
                 target_price = entry_price * (1 - take_profit_pct / 100)
-                if original_exit_price <= target_price:
-                    exit_price = target_price
-                    exit_reason = 'Take Profit'
         
-        holding_minutes = trade['holding_minutes']
+        original_exit_price = trade['exit_price']
         
-        if min_hold_minutes is not None and holding_minutes < min_hold_minutes:
-            continue
+        exit_result = simulate_trade_exit(
+            market_df, instrument, entry_time, forced_exit_time, entry_price,
+            direction, stop_price, target_price, original_exit_time, original_exit_price
+        )
         
-        if max_hold_minutes is not None and holding_minutes > max_hold_minutes:
-            time_delta = pd.Timedelta(minutes=max_hold_minutes)
-            new_exit_time = trade['entry_time'] + time_delta
-            
-            exit_price = simulate_exit_price_at_time(
-                market_df, instrument, trade['entry_time'], new_exit_time, original_exit_price
-            )
-            
-            modified_trade['exit_time'] = new_exit_time
-            modified_trade['holding_minutes'] = max_hold_minutes
-            exit_reason = 'Max Hold Time'
+        exit_price = exit_result['exit_price']
+        exit_time = exit_result['exit_time']
+        exit_reason = exit_result['exit_reason']
         
         if direction == 'Long':
             new_pnl = (exit_price - entry_price) * point_value * contracts
         else:
             new_pnl = (entry_price - exit_price) * point_value * contracts
         
+        modified_trade['exit_time'] = exit_time
         modified_trade['exit_price'] = exit_price
         modified_trade['pnl'] = round(new_pnl, 2)
         modified_trade['outcome'] = 'Win' if new_pnl > 0 else ('Loss' if new_pnl < 0 else 'Breakeven')
         modified_trade['exit_reason'] = exit_reason
+        
+        actual_holding = (exit_time - entry_time).total_seconds() / 60
+        modified_trade['holding_minutes'] = round(actual_holding, 2)
         
         initial_risk = trade.get('initial_risk', abs(new_pnl * 0.5))
         r_multiple = (new_pnl / abs(initial_risk)) if initial_risk != 0 else 0
@@ -123,26 +121,102 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     return modified_trades_df, metrics
 
 
-def simulate_exit_price_at_time(market_df, instrument, entry_time, exit_time, original_exit_price):
+def simulate_trade_exit(market_df, instrument, entry_time, max_exit_time, entry_price, 
+                        direction, stop_price=None, target_price=None, original_exit_time=None,
+                        original_exit_price=None):
     """
-    Simulate what the exit price would be at a specific time using market data
-    Falls back to original exit price if market data not available
+    Simulate trade exit by walking through candles and checking high/low for stop-loss and take-profit triggers
+    
+    Parameters:
+    - market_df: Market OHLCV data (must have 'timestamp' column already converted to datetime)
+    - instrument: 'MES' or 'MNQ'
+    - entry_time: Trade entry timestamp
+    - max_exit_time: Maximum exit time (original exit or forced by max hold)
+    - entry_price: Entry price
+    - direction: 'Long' or 'Short'
+    - stop_price: Stop loss price (None if not set)
+    - target_price: Take profit price (None if not set)
+    - original_exit_time: Original exit time (to distinguish from max hold)
+    - original_exit_price: Original exit price (used when no triggers are hit)
+    
+    Returns:
+    - Dictionary with exit_price, exit_time, and exit_reason
     """
+    
     if market_df.empty:
-        return original_exit_price
+        return {
+            'exit_price': original_exit_price if original_exit_price is not None else entry_price,
+            'exit_time': max_exit_time,
+            'exit_reason': 'No Market Data'
+        }
     
-    market_df['timestamp'] = pd.to_datetime(market_df['timestamp'])
+    instrument_market = market_df[market_df['instrument'] == instrument] if 'instrument' in market_df.columns else market_df
     
-    matching_candles = market_df[
-        (market_df['timestamp'] >= entry_time) & 
-        (market_df['timestamp'] <= exit_time)
-    ]
+    trade_candles = instrument_market[
+        (instrument_market['timestamp'] >= entry_time) & 
+        (instrument_market['timestamp'] <= max_exit_time)
+    ].sort_values('timestamp')
     
-    if matching_candles.empty:
-        return original_exit_price
+    if trade_candles.empty:
+        return {
+            'exit_price': original_exit_price if original_exit_price is not None else entry_price,
+            'exit_time': max_exit_time,
+            'exit_reason': 'No Candles Found'
+        }
     
-    last_candle = matching_candles.iloc[-1]
-    return last_candle['close']
+    for idx, candle in trade_candles.iterrows():
+        candle_time = candle['timestamp']
+        candle_high = candle['high']
+        candle_low = candle['low']
+        candle_close = candle['close']
+        
+        if direction == 'Long':
+            if stop_price is not None and candle_low <= stop_price:
+                return {
+                    'exit_price': stop_price,
+                    'exit_time': candle_time,
+                    'exit_reason': 'Stop Loss'
+                }
+            
+            if target_price is not None and candle_high >= target_price:
+                return {
+                    'exit_price': target_price,
+                    'exit_time': candle_time,
+                    'exit_reason': 'Take Profit'
+                }
+        
+        else:
+            if stop_price is not None and candle_high >= stop_price:
+                return {
+                    'exit_price': stop_price,
+                    'exit_time': candle_time,
+                    'exit_reason': 'Stop Loss'
+                }
+            
+            if target_price is not None and candle_low <= target_price:
+                return {
+                    'exit_price': target_price,
+                    'exit_time': candle_time,
+                    'exit_reason': 'Take Profit'
+                }
+    
+    is_max_hold_exit = original_exit_time is not None and max_exit_time < original_exit_time
+    
+    if is_max_hold_exit:
+        last_candle = trade_candles.iloc[-1]
+        exit_price = last_candle['close']
+        exit_time = last_candle['timestamp']
+        exit_reason = 'Max Hold Time'
+    else:
+        exit_price = original_exit_price if original_exit_price is not None else trade_candles.iloc[-1]['close']
+        exit_time = original_exit_time if original_exit_time is not None else trade_candles.iloc[-1]['timestamp']
+        exit_reason = 'Original Exit'
+    
+    return {
+        'exit_price': exit_price,
+        'exit_time': exit_time,
+        'exit_reason': exit_reason
+    }
 
 
 def create_baseline_scenario(trades_df, starting_capital=50000):
@@ -204,7 +278,7 @@ def get_comparison_matrix(scenarios, metric_keys=None):
             'expectancy_dollar', 'expectancy_r', 'risk_of_ruin', 'recovery_factor',
             'avg_win', 'avg_loss', 'avg_win_duration', 'avg_loss_duration',
             'max_drawdown', 'high_water_mark', 'win_streak', 'loss_streak',
-            'trade_quality_score', 'trades_per_day'
+            'trade_quality_score', 'trades_per_day', 'total_trades'
         ]
     
     comparison_data = []

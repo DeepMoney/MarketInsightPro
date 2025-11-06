@@ -48,6 +48,7 @@ def generate_market_data(instrument, start_date, end_date, base_price, volatilit
         volume = int(np.random.lognormal(10, 1))
         
         data.append({
+            'instrument': instrument,
             'timestamp': ts,
             'open': round(open_price, 2),
             'high': round(high_price, 2),
