@@ -352,6 +352,73 @@ def create_r_multiple_histogram(trades_df, title="R-Multiple Distribution"):
     return fig
 
 
+def create_returns_distribution(trades_df, title="Returns Distribution"):
+    """
+    Create comprehensive returns distribution histogram with statistical analysis
+    """
+    import scipy.stats as stats
+    
+    if trades_df.empty or 'pnl' not in trades_df.columns:
+        fig = go.Figure()
+        fig.add_annotation(text="No return data available", xref="paper", yref="paper", x=0.5, y=0.5, showarrow=False)
+        return fig, {}
+    
+    trades = trades_df.copy()
+    returns = trades['pnl'].dropna()
+    
+    mean_return = returns.mean()
+    median_return = returns.median()
+    std_return = returns.std()
+    skewness = stats.skew(returns)
+    kurtosis = stats.kurtosis(returns)
+    
+    fig = go.Figure()
+    
+    fig.add_trace(go.Histogram(
+        x=returns,
+        nbinsx=40,
+        marker=dict(
+            color=returns,
+            colorscale='RdYlGn',
+            cmid=0,
+            showscale=False,
+            line=dict(width=0.5, color='white')
+        ),
+        name='Returns',
+        opacity=0.75
+    ))
+    
+    fig.add_vline(x=mean_return, line_dash="dash", line_color="blue", 
+                  annotation_text=f"Mean: ${mean_return:.2f}",
+                  annotation_position="top right")
+    fig.add_vline(x=median_return, line_dash="dash", line_color="green",
+                  annotation_text=f"Median: ${median_return:.2f}",
+                  annotation_position="bottom right")
+    fig.add_vline(x=0, line_dash="solid", line_color="black", opacity=0.5)
+    
+    fig.update_layout(
+        title=title,
+        xaxis_title='P&L per Trade ($)',
+        yaxis_title='Frequency',
+        template='plotly_white',
+        height=500,
+        showlegend=False
+    )
+    
+    stats_dict = {
+        'mean': mean_return,
+        'median': median_return,
+        'std': std_return,
+        'skewness': skewness,
+        'kurtosis': kurtosis,
+        'min': returns.min(),
+        'max': returns.max(),
+        'count': len(returns)
+    }
+    
+    return fig, stats_dict
+
+
 def create_comparison_bar_chart(comparison_df, metric='total_pnl', title="Scenario Comparison"):
     """
     Create bar chart comparing scenarios on a specific metric

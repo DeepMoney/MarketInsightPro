@@ -15,7 +15,7 @@ from scenario_engine import (
 from visualizations import (
     create_candlestick_chart, create_equity_curve, create_weekly_pnl_heatmap,
     create_monthly_returns_grid, create_time_of_day_heatmap, create_r_multiple_histogram,
-    create_comparison_bar_chart
+    create_comparison_bar_chart, create_returns_distribution
 )
 
 MAX_SCENARIOS = 10
@@ -426,7 +426,7 @@ with tab6:
                 st.dataframe(hour_perf, use_container_width=True, hide_index=True)
 
 with tab7:
-    st.header("R-Multiple Distribution")
+    st.header("Returns & R-Multiple Distribution")
     
     if len(st.session_state.scenarios) == 0:
         st.warning("No scenarios available.")
@@ -440,10 +440,37 @@ with tab7:
         scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
         
         if scenario and not scenario['trades'].empty:
+            st.subheader("Dollar Returns Distribution")
+            fig_returns, return_stats = create_returns_distribution(scenario['trades'], f"Returns Distribution - {selected_scenario}")
+            st.plotly_chart(fig_returns, use_container_width=True)
+            
+            if return_stats:
+                st.subheader("Statistical Analysis")
+                col1, col2, col3, col4, col5 = st.columns(5)
+                with col1:
+                    st.metric("Mean", f"${return_stats['mean']:.2f}")
+                with col2:
+                    st.metric("Median", f"${return_stats['median']:.2f}")
+                with col3:
+                    st.metric("Std Dev", f"${return_stats['std']:.2f}")
+                with col4:
+                    st.metric("Skewness", f"{return_stats['skewness']:.3f}")
+                with col5:
+                    st.metric("Kurtosis", f"{return_stats['kurtosis']:.3f}")
+                
+                col6, col7, col8 = st.columns(3)
+                with col6:
+                    st.metric("Min", f"${return_stats['min']:.2f}")
+                with col7:
+                    st.metric("Max", f"${return_stats['max']:.2f}")
+                with col8:
+                    st.metric("Total Trades", f"{return_stats['count']}")
+            
+            st.divider()
+            st.subheader("R-Multiple Distribution")
             fig_r = create_r_multiple_histogram(scenario['trades'])
             st.plotly_chart(fig_r, use_container_width=True)
             
-            st.subheader("R-Multiple Statistics")
             if 'r_multiple' in scenario['trades'].columns:
                 r_stats = scenario['trades']['r_multiple'].describe()
                 
