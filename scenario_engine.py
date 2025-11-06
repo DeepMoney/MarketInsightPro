@@ -35,6 +35,8 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     mes_split_pct = scenario_params.get('mes_split_pct', 50)
     trade_hours_start = scenario_params.get('trade_hours_start', None)
     trade_hours_end = scenario_params.get('trade_hours_end', None)
+    slippage_ticks = scenario_params.get('slippage_ticks', 0)
+    commission_per_contract = scenario_params.get('commission_per_contract', 0)
     
     mnq_split_pct = 100 - mes_split_pct
     
@@ -108,16 +110,36 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         exit_time = exit_result['exit_time']
         exit_reason = exit_result['exit_reason']
         
+        tick_size = 0.25 if instrument == 'MES' else 0.25
+        
+        effective_entry_price = entry_price
+        effective_exit_price = exit_price
+        
+        if slippage_ticks > 0:
+            slippage_amount = slippage_ticks * tick_size
+            if direction == 'Long':
+                effective_entry_price = entry_price + slippage_amount
+                effective_exit_price = exit_price - slippage_amount
+            else:
+                effective_entry_price = entry_price - slippage_amount
+                effective_exit_price = exit_price + slippage_amount
+        
         if direction == 'Long':
-            new_pnl = (exit_price - entry_price) * point_value * contracts
+            new_pnl = (effective_exit_price - effective_entry_price) * point_value * contracts
         else:
-            new_pnl = (entry_price - exit_price) * point_value * contracts
+            new_pnl = (effective_entry_price - effective_exit_price) * point_value * contracts
+        
+        total_commission = commission_per_contract * contracts
+        new_pnl -= total_commission
         
         modified_trade['exit_time'] = exit_time
         modified_trade['exit_price'] = exit_price
         modified_trade['pnl'] = round(new_pnl, 2)
         modified_trade['outcome'] = 'Win' if new_pnl > 0 else ('Loss' if new_pnl < 0 else 'Breakeven')
         modified_trade['exit_reason'] = exit_reason
+        if slippage_ticks > 0 or commission_per_contract > 0:
+            modified_trade['slippage_cost'] = round((effective_entry_price - entry_price) * point_value * contracts + (exit_price - effective_exit_price) * point_value * contracts if direction == 'Long' else (entry_price - effective_entry_price) * point_value * contracts + (effective_exit_price - exit_price) * point_value * contracts, 2)
+            modified_trade['commission_cost'] = round(total_commission, 2)
         
         actual_holding = (exit_time - entry_time).total_seconds() / 60
         modified_trade['holding_minutes'] = round(actual_holding, 2)
@@ -250,7 +272,9 @@ def create_baseline_scenario(trades_df, starting_capital=50000):
             'capital_allocation_pct': 40,
             'mes_split_pct': 50,
             'trade_hours_start': None,
-            'trade_hours_end': None
+            'trade_hours_end': None,
+            'slippage_ticks': 0,
+            'commission_per_contract': 0
         },
         'trades': trades_df,
         'metrics': metrics,
@@ -348,6 +372,10 @@ def get_scenario_summary(scenario):
         param_summary.append(f"Exclude: {', '.join(params['exclude_days'])}")
     if params.get('trade_hours_start') is not None and params.get('trade_hours_end') is not None:
         param_summary.append(f"Hours: {int(params['trade_hours_start'])}-{int(params['trade_hours_end'])}")
+    if params.get('slippage_ticks', 0) > 0:
+        param_summary.append(f"Slippage: {params['slippage_ticks']} ticks")
+    if params.get('commission_per_contract', 0) > 0:
+        param_summary.append(f"Commission: ${params['commission_per_contract']}/contract")
     if params.get('capital_allocation_pct') != 40:
         param_summary.append(f"Capital: {params['capital_allocation_pct']}%")
     if params.get('mes_split_pct') != 50:

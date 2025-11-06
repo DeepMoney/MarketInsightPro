@@ -260,6 +260,9 @@ with tab2:
                     trade_hours_start = None
                     trade_hours_end = None
                 
+                slippage_ticks = st.number_input("Slippage (ticks)", 0, 20, 0, 1, help="Slippage in ticks (0.25 per tick)")
+                commission_per_contract = st.number_input("Commission ($ per contract)", 0.0, 50.0, 0.0, 0.5, help="Round-trip commission cost")
+                
                 capital_allocation_pct = st.slider("Capital Allocation %", 10, 100, 40, 5)
                 
                 mes_split_pct = st.slider("MES / MNQ Split % (MES)", 0, 100, 50, 10)
@@ -277,7 +280,9 @@ with tab2:
                     'capital_allocation_pct': capital_allocation_pct,
                     'mes_split_pct': mes_split_pct,
                     'trade_hours_start': trade_hours_start if use_time_filter else None,
-                    'trade_hours_end': trade_hours_end if use_time_filter else None
+                    'trade_hours_end': trade_hours_end if use_time_filter else None,
+                    'slippage_ticks': slippage_ticks,
+                    'commission_per_contract': commission_per_contract
                 }
                 
                 combined_trades = pd.concat([st.session_state.trade_data['MES'], st.session_state.trade_data['MNQ']])
