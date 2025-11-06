@@ -4,6 +4,31 @@
 
 This is a trading analytics and scenario modeling application designed for analyzing Micro S&P 500 (MES) and Micro Nasdaq (MNQ) futures trading performance. The system enables traders to evaluate historical trading data, visualize performance metrics, and run "what-if" scenarios to optimize trading strategies. Built with Streamlit for the frontend and pandas/numpy for data processing, it provides comprehensive performance analytics and interactive visualizations.
 
+**Status**: Production-ready (November 6, 2025)
+
+## Recent Changes
+
+### November 6, 2025 - Critical Fixes and Production Release
+
+**Scenario Engine Improvements:**
+- Added instrument-specific filtering in `simulate_trade_exit` to properly handle MES and MNQ trades separately
+- Fixed exit reason labeling to correctly distinguish between "Max Hold Time" forced exits and "Original Exit" unmodified trades
+- Implemented original exit price preservation - when no stop-loss or take-profit triggers hit, trades now correctly return their original exit prices instead of being modified
+- Added intraperiod high/low checking for accurate stop-loss and take-profit triggering within 15-minute candles
+
+**Data Generator Enhancement:**
+- Added `instrument` column to market data for proper MES/MNQ separation during scenario calculations
+
+**Metrics Calculation Fix:**
+- Added `total_trades` metric to comparison matrix display columns to fix KeyError during matrix rendering
+
+**Testing:**
+- Passed comprehensive end-to-end testing covering all 7 visualizations, 16 metrics, and scenario creation workflows
+- Verified baseline scenario integrity (preserves original trades)
+- Validated what-if scenario accuracy (correct P&L recalculation with stop-loss, take-profit, and hold time parameters)
+- Confirmed 10-scenario limit enforcement in UI
+- Tested CSV export functionality
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
