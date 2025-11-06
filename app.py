@@ -104,6 +104,103 @@ with st.sidebar:
     else:
         st.write("Upload market and trade CSV files:")
         
+        with st.expander("📥 Download CSV Templates", expanded=False):
+            st.write("Download these templates to see the exact format required:")
+            
+            mes_market_template = pd.DataFrame({
+                'timestamp': ['2024-07-01 09:30:00', '2024-07-01 09:45:00', '2024-07-01 10:00:00'],
+                'open': [5500.25, 5502.50, 5505.00],
+                'high': [5503.75, 5506.25, 5507.50],
+                'low': [5499.50, 5501.00, 5503.75],
+                'close': [5502.50, 5505.00, 5506.25],
+                'volume': [1250, 1180, 1320],
+                'instrument': ['MES', 'MES', 'MES']
+            })
+            
+            mnq_market_template = pd.DataFrame({
+                'timestamp': ['2024-07-01 09:30:00', '2024-07-01 09:45:00', '2024-07-01 10:00:00'],
+                'open': [19500.50, 19510.25, 19520.00],
+                'high': [19515.75, 19525.50, 19535.25],
+                'low': [19495.00, 19505.75, 19515.50],
+                'close': [19510.25, 19520.00, 19530.75],
+                'volume': [2150, 2080, 2220],
+                'instrument': ['MNQ', 'MNQ', 'MNQ']
+            })
+            
+            mes_trades_template = pd.DataFrame({
+                'trade_id': [1, 2],
+                'instrument': ['MES', 'MES'],
+                'direction': ['LONG', 'SHORT'],
+                'entry_time': ['2024-07-01 10:00:00', '2024-07-01 14:30:00'],
+                'exit_time': ['2024-07-01 11:15:00', '2024-07-01 15:45:00'],
+                'entry_price': [5500.00, 5520.00],
+                'exit_price': [5515.00, 5510.00],
+                'contracts': [2, 2],
+                'pnl': [150.00, 100.00],
+                'initial_risk': [50.00, 50.00],
+                'r_multiple': [3.0, 2.0],
+                'holding_minutes': [75, 75],
+                'entry_hour': [10, 14],
+                'exit_hour': [11, 15],
+                'outcome': ['Win', 'Win'],
+                'stop_price': [5495.00, 5525.00]
+            })
+            
+            mnq_trades_template = pd.DataFrame({
+                'trade_id': [1, 2],
+                'instrument': ['MNQ', 'MNQ'],
+                'direction': ['LONG', 'SHORT'],
+                'entry_time': ['2024-07-01 10:30:00', '2024-07-01 13:00:00'],
+                'exit_time': ['2024-07-01 12:00:00', '2024-07-01 14:15:00'],
+                'entry_price': [19500.00, 19550.00],
+                'exit_price': [19550.00, 19525.00],
+                'contracts': [1, 1],
+                'pnl': [100.00, 50.00],
+                'initial_risk': [50.00, 50.00],
+                'r_multiple': [2.0, 1.0],
+                'holding_minutes': [90, 75],
+                'entry_hour': [10, 13],
+                'exit_hour': [12, 14],
+                'outcome': ['Win', 'Win'],
+                'stop_price': [19450.00, 19575.00]
+            })
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.download_button(
+                    "📄 MES Market Template",
+                    mes_market_template.to_csv(index=False),
+                    "MES_market_template.csv",
+                    "text/csv",
+                    key="template_mes_market"
+                )
+                st.download_button(
+                    "📄 MES Trades Template",
+                    mes_trades_template.to_csv(index=False),
+                    "MES_trades_template.csv",
+                    "text/csv",
+                    key="template_mes_trades"
+                )
+            with col2:
+                st.download_button(
+                    "📄 MNQ Market Template",
+                    mnq_market_template.to_csv(index=False),
+                    "MNQ_market_template.csv",
+                    "text/csv",
+                    key="template_mnq_market"
+                )
+                st.download_button(
+                    "📄 MNQ Trades Template",
+                    mnq_trades_template.to_csv(index=False),
+                    "MNQ_trades_template.csv",
+                    "text/csv",
+                    key="template_mnq_trades"
+                )
+            
+            st.caption("💡 Tip: Download all 4 templates, replace the sample data with your real trading data, then upload them back.")
+        
+        st.divider()
+        
         mes_market_file = st.file_uploader("MES Market Data", type=['csv'], key="mes_market")
         mnq_market_file = st.file_uploader("MNQ Market Data", type=['csv'], key="mnq_market")
         mes_trades_file = st.file_uploader("MES Trades Data", type=['csv'], key="mes_trades")
