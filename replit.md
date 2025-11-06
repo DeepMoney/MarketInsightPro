@@ -4,30 +4,41 @@
 
 This is a trading analytics and scenario modeling application designed for analyzing Micro S&P 500 (MES) and Micro Nasdaq (MNQ) futures trading performance. The system enables traders to evaluate historical trading data, visualize performance metrics, and run "what-if" scenarios to optimize trading strategies. Built with Streamlit for the frontend and pandas/numpy for data processing, it provides comprehensive performance analytics and interactive visualizations.
 
-**Status**: Production-ready (November 6, 2025)
+**Status**: Production-ready with new features (November 6, 2025)
 
 ## Recent Changes
 
-### November 6, 2025 - Critical Fixes and Production Release
+### November 6, 2025 - New What-If Parameters and Enhanced Analytics
 
-**Scenario Engine Improvements:**
+**Time-of-Day Filtering (8th What-If Parameter):**
+- Added trade_hours_start and trade_hours_end parameters to scenario engine
+- Filters trades based on entry time hour (24-hour format)
+- Supports standard intraday ranges (e.g., 10:00-14:00) and overnight ranges
+- UI controls: "Limit Trading Hours" checkbox with Start/End hour inputs
+- Enables testing strategies like "trade only during morning session"
+
+**Slippage and Commission Parameters (9th & 10th What-If Parameters):**
+- Added configurable slippage in ticks (0.25 per tick for MES/MNQ)
+- Added round-trip commission cost per contract
+- Slippage applied to both entry and exit prices (opposite directions for Long/Short)
+- Commission applied as total round-trip cost (entry + exit)
+- Trade fields track slippage_cost and commission_cost separately
+- Enables realistic modeling of transaction costs impact on strategy performance
+
+**Returns Distribution Visualization:**
+- Comprehensive dollar P&L histogram with 40 bins and color-coded bars (red=loss, green=win)
+- Statistical analysis: Mean, Median, Standard Deviation, Skewness, Kurtosis, Min/Max, Count
+- Mean and Median lines overlaid on histogram for visual reference
+- Integrated into Distribution tab alongside existing R-Multiple histogram
+- Uses scipy.stats for advanced statistical metrics
+
+**Earlier Bug Fixes (Production Release):**
 - Added instrument-specific filtering in `simulate_trade_exit` to properly handle MES and MNQ trades separately
 - Fixed exit reason labeling to correctly distinguish between "Max Hold Time" forced exits and "Original Exit" unmodified trades
-- Implemented original exit price preservation - when no stop-loss or take-profit triggers hit, trades now correctly return their original exit prices instead of being modified
+- Implemented original exit price preservation - when no stop-loss or take-profit triggers hit, trades now correctly return their original exit prices
 - Added intraperiod high/low checking for accurate stop-loss and take-profit triggering within 15-minute candles
-
-**Data Generator Enhancement:**
-- Added `instrument` column to market data for proper MES/MNQ separation during scenario calculations
-
-**Metrics Calculation Fix:**
-- Added `total_trades` metric to comparison matrix display columns to fix KeyError during matrix rendering
-
-**Testing:**
-- Passed comprehensive end-to-end testing covering all 7 visualizations, 16 metrics, and scenario creation workflows
-- Verified baseline scenario integrity (preserves original trades)
-- Validated what-if scenario accuracy (correct P&L recalculation with stop-loss, take-profit, and hold time parameters)
-- Confirmed 10-scenario limit enforcement in UI
-- Tested CSV export functionality
+- Added `total_trades` metric to comparison matrix display columns
+- Fixed commission double-counting bug (was multiplying by 2 incorrectly)
 
 ## User Preferences
 
