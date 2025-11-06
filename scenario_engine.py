@@ -33,6 +33,8 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     exclude_days = scenario_params.get('exclude_days', [])
     capital_allocation_pct = scenario_params.get('capital_allocation_pct', 40)
     mes_split_pct = scenario_params.get('mes_split_pct', 50)
+    trade_hours_start = scenario_params.get('trade_hours_start', None)
+    trade_hours_end = scenario_params.get('trade_hours_end', None)
     
     mnq_split_pct = 100 - mes_split_pct
     
@@ -42,6 +44,18 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         weekday = trade['entry_time'].strftime('%A')
         if weekday in exclude_days:
             continue
+        
+        entry_hour = trade['entry_time'].hour
+        entry_minute = trade['entry_time'].minute
+        entry_time_decimal = entry_hour + entry_minute / 60.0
+        
+        if trade_hours_start is not None and trade_hours_end is not None:
+            if trade_hours_start < trade_hours_end:
+                if not (trade_hours_start <= entry_time_decimal <= trade_hours_end):
+                    continue
+            else:
+                if not (entry_time_decimal >= trade_hours_start or entry_time_decimal <= trade_hours_end):
+                    continue
         
         holding_minutes = trade['holding_minutes']
         if min_hold_minutes is not None and holding_minutes < min_hold_minutes:
@@ -234,7 +248,9 @@ def create_baseline_scenario(trades_df, starting_capital=50000):
             'max_hold_minutes': None,
             'exclude_days': [],
             'capital_allocation_pct': 40,
-            'mes_split_pct': 50
+            'mes_split_pct': 50,
+            'trade_hours_start': None,
+            'trade_hours_end': None
         },
         'trades': trades_df,
         'metrics': metrics,
@@ -330,6 +346,8 @@ def get_scenario_summary(scenario):
         param_summary.append(f"Max Hold: {params['max_hold_minutes']} min")
     if params.get('exclude_days'):
         param_summary.append(f"Exclude: {', '.join(params['exclude_days'])}")
+    if params.get('trade_hours_start') is not None and params.get('trade_hours_end') is not None:
+        param_summary.append(f"Hours: {int(params['trade_hours_start'])}-{int(params['trade_hours_end'])}")
     if params.get('capital_allocation_pct') != 40:
         param_summary.append(f"Capital: {params['capital_allocation_pct']}%")
     if params.get('mes_split_pct') != 50:

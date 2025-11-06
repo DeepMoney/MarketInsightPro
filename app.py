@@ -249,6 +249,17 @@ with tab2:
                     default=[]
                 )
                 
+                use_time_filter = st.checkbox("Limit Trading Hours")
+                if use_time_filter:
+                    time_col1, time_col2 = st.columns(2)
+                    with time_col1:
+                        trade_hours_start = st.number_input("Start Hour (24h)", 0, 23, 9, 1)
+                    with time_col2:
+                        trade_hours_end = st.number_input("End Hour (24h)", 0, 23, 16, 1)
+                else:
+                    trade_hours_start = None
+                    trade_hours_end = None
+                
                 capital_allocation_pct = st.slider("Capital Allocation %", 10, 100, 40, 5)
                 
                 mes_split_pct = st.slider("MES / MNQ Split % (MES)", 0, 100, 50, 10)
@@ -264,7 +275,9 @@ with tab2:
                     'max_hold_minutes': max_hold_minutes if use_max_hold else None,
                     'exclude_days': exclude_days,
                     'capital_allocation_pct': capital_allocation_pct,
-                    'mes_split_pct': mes_split_pct
+                    'mes_split_pct': mes_split_pct,
+                    'trade_hours_start': trade_hours_start if use_time_filter else None,
+                    'trade_hours_end': trade_hours_end if use_time_filter else None
                 }
                 
                 combined_trades = pd.concat([st.session_state.trade_data['MES'], st.session_state.trade_data['MNQ']])
