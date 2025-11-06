@@ -68,7 +68,7 @@ def calculate_r_multiple(pnl, initial_risk):
     return round(pnl / abs(initial_risk), 2)
 
 
-def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), starting_capital=50000, allocation_pct=0.4):
+def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), starting_capital=50000, allocation_pct=0.4, instrument_split_pct=0.5):
     """
     Generate realistic trade data with long/short positions, R-multiples, and time analysis
     
@@ -77,7 +77,8 @@ def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), star
     - market_df: DataFrame with market OHLCV data
     - trades_per_day_range: tuple of (min, max) trades per day
     - starting_capital: initial capital
-    - allocation_pct: percentage of capital to allocate
+    - allocation_pct: percentage of total capital to allocate to trading (e.g., 0.4 = 40%)
+    - instrument_split_pct: percentage of allocated capital for this instrument (e.g., 0.5 for 50/50 MES/MNQ split)
     """
     
     market_df['date'] = pd.to_datetime(market_df['timestamp']).dt.date
@@ -109,7 +110,8 @@ def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), star
             entry_price = round(entry_row['open'] + random.uniform(-0.5, 0.5), 2)
             exit_price = round(exit_row['close'] + random.uniform(-0.5, 0.5), 2)
             
-            contracts = max(1, int((starting_capital * allocation_pct) / margin_requirement))
+            capital_for_trade = starting_capital * allocation_pct * instrument_split_pct
+            contracts = max(1, int(capital_for_trade / margin_requirement))
             
             stop_loss_pct = random.uniform(0.01, 0.03)
             if direction == 'Long':
@@ -174,10 +176,10 @@ def create_mock_data():
     mnq_market = generate_market_data('MNQ', start_date, end_date, base_price=19500, volatility=0.02)
     
     print("Generating MES trades...")
-    mes_trades = generate_trade_data('MES', mes_market, trades_per_day_range=(2, 3))
+    mes_trades = generate_trade_data('MES', mes_market, trades_per_day_range=(2, 3), instrument_split_pct=0.5)
     
     print("Generating MNQ trades...")
-    mnq_trades = generate_trade_data('MNQ', mnq_market, trades_per_day_range=(2, 3))
+    mnq_trades = generate_trade_data('MNQ', mnq_market, trades_per_day_range=(2, 3), instrument_split_pct=0.5)
     
     print(f"Generated {len(mes_market)} MES candles and {len(mes_trades)} MES trades")
     print(f"Generated {len(mnq_market)} MNQ candles and {len(mnq_trades)} MNQ trades")

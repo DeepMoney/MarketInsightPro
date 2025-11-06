@@ -37,6 +37,7 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     trade_hours_end = scenario_params.get('trade_hours_end', None)
     slippage_ticks = scenario_params.get('slippage_ticks', 0)
     commission_per_contract = scenario_params.get('commission_per_contract', 0)
+    capital_multiplier = scenario_params.get('capital_multiplier', 1.0)
     
     mnq_split_pct = 100 - mes_split_pct
     
@@ -73,7 +74,7 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         point_value = 5 if instrument == 'MES' else 2
         
         allocation_for_instrument = (mes_split_pct / 100) if instrument == 'MES' else (mnq_split_pct / 100)
-        capital_for_trade = starting_capital * (capital_allocation_pct / 100) * allocation_for_instrument
+        capital_for_trade = starting_capital * (capital_allocation_pct / 100) * allocation_for_instrument * capital_multiplier
         
         margin_requirement = 1000 if instrument == 'MES' else 1500
         contracts = max(1, int(capital_for_trade / margin_requirement))
@@ -274,7 +275,8 @@ def create_baseline_scenario(trades_df, starting_capital=50000):
             'trade_hours_start': None,
             'trade_hours_end': None,
             'slippage_ticks': 0,
-            'commission_per_contract': 0
+            'commission_per_contract': 0,
+            'capital_multiplier': 1.0
         },
         'trades': trades_df,
         'metrics': metrics,
