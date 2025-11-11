@@ -17,6 +17,15 @@ This is a trading analytics and scenario modeling application designed for analy
 - Enables projection of strategy performance at different account sizes
 - UI: Number input in "Capital & Position Sizing" section with helpful caption showing base capital
 
+**Max Concurrent Positions (12th What-If Parameter):**
+- Added max_concurrent_positions parameter to prevent overlapping trades
+- Enforces global position limit across all instruments (MES + MNQ combined)
+- Filters out trades that would violate the concurrent position limit
+- Trades processed chronologically - earlier trades take priority
+- Common use: Set to 1 for "only one trade at a time" rule testing
+- UI: "Limit Concurrent Positions" checkbox with "Max Positions" number input (1-10)
+- Use case: Simulate realistic trading constraints where you can't manage too many positions simultaneously
+
 **Capital Allocation Bug Fix (Critical):**
 - Fixed discrepancy between data_generator.py and scenario_engine.py capital allocation logic
 - Previously: Data generator allocated capital to each instrument independently (double-counting)

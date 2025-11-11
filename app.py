@@ -359,6 +359,9 @@ with tab2:
                 
                 slippage_ticks = st.number_input("Slippage (ticks)", 0, 20, 0, 1, help="Slippage in ticks (0.25 per tick)")
                 commission_per_contract = st.number_input("Commission ($ per contract)", 0.0, 50.0, 0.0, 0.5, help="Round-trip commission cost")
+                
+                use_position_limit = st.checkbox("Limit Concurrent Positions", help="Block new trades when position limit reached")
+                max_concurrent_positions = st.number_input("Max Positions", 1, 10, 1, 1, help="Maximum number of trades open at the same time (1 = only one trade at a time)")
             
             st.subheader("Capital & Position Sizing")
             col3, col4 = st.columns(2)
@@ -395,7 +398,8 @@ with tab2:
                     'trade_hours_end': trade_hours_end if use_time_filter else None,
                     'slippage_ticks': slippage_ticks,
                     'commission_per_contract': commission_per_contract,
-                    'capital_multiplier': capital_multiplier
+                    'capital_multiplier': capital_multiplier,
+                    'max_concurrent_positions': max_concurrent_positions if use_position_limit else None
                 }
                 
                 combined_trades = pd.concat([st.session_state.trade_data['MES'], st.session_state.trade_data['MNQ']])

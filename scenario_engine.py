@@ -38,10 +38,14 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
     slippage_ticks = scenario_params.get('slippage_ticks', 0)
     commission_per_contract = scenario_params.get('commission_per_contract', 0)
     capital_multiplier = scenario_params.get('capital_multiplier', 1.0)
+    max_concurrent_positions = scenario_params.get('max_concurrent_positions', None)
     
     mnq_split_pct = 100 - mes_split_pct
     
+    trades = trades.sort_values(['entry_time', 'exit_time']).reset_index(drop=True)
+    
     filtered_trades = []
+    active_positions = []
     
     for idx, trade in trades.iterrows():
         weekday = trade['entry_time'].strftime('%A')
@@ -148,6 +152,14 @@ def apply_scenario(trades_df, market_df, scenario_params, starting_capital=50000
         initial_risk = trade.get('initial_risk', abs(new_pnl * 0.5))
         r_multiple = (new_pnl / abs(initial_risk)) if initial_risk != 0 else 0
         modified_trade['r_multiple'] = round(r_multiple, 2)
+        
+        if max_concurrent_positions is not None and max_concurrent_positions > 0:
+            active_positions = [pos for pos in active_positions if pos['exit_time'] > entry_time]
+            
+            if len(active_positions) >= max_concurrent_positions:
+                continue
+            
+            active_positions.append({'entry_time': entry_time, 'exit_time': exit_time})
         
         filtered_trades.append(modified_trade)
     
