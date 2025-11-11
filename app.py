@@ -327,17 +327,17 @@ with tab2:
             col1, col2 = st.columns(2)
             
             with col1:
-                use_stop_loss = st.checkbox("Apply Stop Loss")
-                stop_loss_pct = st.slider("Stop Loss %", 0.5, 10.0, 2.0, 0.1) if use_stop_loss else None
+                use_stop_loss = st.checkbox("Apply Stop Loss", help="Enable to apply stop loss to all trades")
+                stop_loss_pct = st.slider("Stop Loss %", 0.5, 10.0, 2.0, 0.1)
                 
-                use_take_profit = st.checkbox("Apply Take Profit")
-                take_profit_pct = st.slider("Take Profit %", 0.5, 20.0, 5.0, 0.5) if use_take_profit else None
+                use_take_profit = st.checkbox("Apply Take Profit", help="Enable to apply take profit to all trades")
+                take_profit_pct = st.slider("Take Profit %", 0.5, 20.0, 5.0, 0.5)
                 
-                use_min_hold = st.checkbox("Minimum Hold Time")
-                min_hold_minutes = st.number_input("Min Hold (minutes)", 0, 1440, 0, 15) if use_min_hold else None
+                use_min_hold = st.checkbox("Minimum Hold Time", help="Enable to set minimum holding period")
+                min_hold_minutes = st.number_input("Min Hold (minutes)", 0, 1440, 0, 15)
                 
-                use_max_hold = st.checkbox("Maximum Hold Time")
-                max_hold_minutes = st.number_input("Max Hold (minutes)", 15, 1440, 240, 15) if use_max_hold else None
+                use_max_hold = st.checkbox("Maximum Hold Time", help="Enable to set maximum holding period")
+                max_hold_minutes = st.number_input("Max Hold (minutes)", 15, 1440, 240, 15)
             
             with col2:
                 exclude_days = st.multiselect(
@@ -384,8 +384,8 @@ with tab2:
             
             if submitted:
                 params = {
-                    'stop_loss_pct': stop_loss_pct,
-                    'take_profit_pct': take_profit_pct,
+                    'stop_loss_pct': stop_loss_pct if use_stop_loss else None,
+                    'take_profit_pct': take_profit_pct if use_take_profit else None,
                     'min_hold_minutes': min_hold_minutes if use_min_hold else None,
                     'max_hold_minutes': max_hold_minutes if use_max_hold else None,
                     'exclude_days': exclude_days,

@@ -4,9 +4,32 @@
 
 This is a trading analytics and scenario modeling application designed for analyzing Micro S&P 500 (MES) and Micro Nasdaq (MNQ) futures trading performance. The system enables traders to evaluate historical trading data, visualize performance metrics, and run "what-if" scenarios to optimize trading strategies. Built with Streamlit for the frontend and pandas/numpy for data processing, it provides comprehensive performance analytics and interactive visualizations.
 
-**Status**: Production-ready with new features (November 6, 2025)
+**Status**: Production-ready with capital multiplier and UI fixes (November 11, 2025)
 
 ## Recent Changes
+
+### November 11, 2025 - Capital Multiplier Feature and Critical Bug Fixes
+
+**Capital Multiplier (11th What-If Parameter):**
+- Added capital_multiplier parameter (0.1x to 10.0x range) for testing "what if I had more/less capital" scenarios
+- Automatically scales contract quantities based on hypothetical capital amounts
+- 2.0x multiplier doubles capital → doubles contracts → approximately doubles P&L
+- Enables projection of strategy performance at different account sizes
+- UI: Number input in "Capital & Position Sizing" section with helpful caption showing base capital
+
+**Capital Allocation Bug Fix (Critical):**
+- Fixed discrepancy between data_generator.py and scenario_engine.py capital allocation logic
+- Previously: Data generator allocated capital to each instrument independently (double-counting)
+- Now: Both modules use same formula: `capital_for_trade = starting_capital × allocation_pct × instrument_split_pct`
+- Ensures capital multiplier scales P&L correctly and predictably
+- Default 50/50 MES/MNQ split with 40% total allocation results in consistent contract sizing
+
+**Slider UI Bug Fix:**
+- Fixed issue where Stop Loss, Take Profit, and other parameter sliders didn't appear on first scenario creation
+- Root cause: Streamlit forms don't re-render on checkbox state changes
+- Solution: All sliders now always visible and interactive from the start
+- Checkboxes control whether slider values are applied to scenario (not visibility)
+- Improved UX: Users can configure all parameters upfront, then toggle which to apply
 
 ### November 6, 2025 - New What-If Parameters and Enhanced Analytics
 
