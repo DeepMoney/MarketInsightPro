@@ -86,6 +86,70 @@ def init_database():
             END $$;
         """)
         
+        # Markets Table (new architecture)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS markets (
+                id VARCHAR(50) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Instruments Table (assets within markets)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS instruments (
+                id VARCHAR(50) PRIMARY KEY,
+                market_id VARCHAR(50) NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
+                symbol VARCHAR(20) NOT NULL,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(market_id, symbol)
+            )
+        """)
+        
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_instruments_market 
+            ON instruments(market_id)
+        """)
+        
+        # Portfolios Table (renamed from machines, multi-instrument support)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS portfolios (
+                id UUID PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                starting_capital DECIMAL(12, 2) NOT NULL,
+                status VARCHAR(20) NOT NULL CHECK (status IN ('live', 'simulated')),
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Portfolio-Instruments Junction Table (many-to-many)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS portfolio_instruments (
+                id SERIAL PRIMARY KEY,
+                portfolio_id UUID NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+                instrument_id VARCHAR(50) NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
+                timeframe VARCHAR(10) NOT NULL,
+                allocation_percent DECIMAL(5, 2) DEFAULT 100.00,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(portfolio_id, instrument_id, timeframe)
+            )
+        """)
+        
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_portfolio_instruments_portfolio 
+            ON portfolio_instruments(portfolio_id)
+        """)
+        
+        cur.execute("""
+            CREATE INDEX IF NOT EXISTS idx_portfolio_instruments_instrument 
+            ON portfolio_instruments(instrument_id)
+        """)
+        
         # Trades Table (per machine)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS trades (
@@ -526,6 +590,287 @@ def delete_scenario(scenario_id):
     except Exception as e:
         conn.rollback()
         raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ========== NEW ARCHITECTURE: Markets, Instruments, Portfolios ==========
+
+def seed_initial_data():
+    """Seed initial markets and instruments"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Seed Markets
+        markets = [
+            ('index_futures', 'Index Futures', 'Micro futures contracts for major indices'),
+            ('mt5', 'MT5 (Forex)', 'MetaTrader 5 Forex trading pairs'),
+            ('crypto', 'Crypto', 'Cryptocurrency trading pairs')
+        ]
+        
+        for market_id, name, description in markets:
+            cur.execute("""
+                INSERT INTO markets (id, name, description)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (id) DO NOTHING
+            """, (market_id, name, description))
+        
+        # Seed Initial Instruments
+        instruments = [
+            # Index Futures
+            ('MES', 'index_futures', 'MES', 'Micro E-mini S&P 500', 'Micro futures contract tracking S&P 500 index'),
+            ('MNQ', 'index_futures', 'MNQ', 'Micro E-mini Nasdaq-100', 'Micro futures contract tracking Nasdaq-100 index'),
+            # MT5 Forex (examples)
+            ('EURUSD', 'mt5', 'EUR/USD', 'Euro / US Dollar', 'Major forex pair'),
+            ('USDJPY', 'mt5', 'USD/JPY', 'US Dollar / Japanese Yen', 'Major forex pair'),
+            ('USDCAD', 'mt5', 'USD/CAD', 'US Dollar / Canadian Dollar', 'Major forex pair'),
+            # Crypto (examples)
+            ('BTCUSDT', 'crypto', 'BTC/USDT', 'Bitcoin / Tether', 'Cryptocurrency pair'),
+            ('ETHUSDT', 'crypto', 'ETH/USDT', 'Ethereum / Tether', 'Cryptocurrency pair'),
+            ('LTCUSDT', 'crypto', 'LTC/USDT', 'Litecoin / Tether', 'Cryptocurrency pair'),
+        ]
+        
+        for inst_id, market_id, symbol, name, description in instruments:
+            cur.execute("""
+                INSERT INTO instruments (id, market_id, symbol, name, description)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (market_id, symbol) DO NOTHING
+            """, (inst_id, market_id, symbol, name, description))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def migrate_machines_to_portfolios():
+    """Migrate existing machines to new portfolio structure (idempotent)"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        # Get all existing machines
+        cur.execute("SELECT * FROM machines")
+        machines = cur.fetchall()
+        
+        if not machines:
+            conn.commit()
+            return 0
+        
+        migrated_count = 0
+        for machine in machines:
+            machine_id = machine['id']
+            
+            # Check if already migrated (idempotent - safe to run multiple times)
+            cur.execute("SELECT id FROM portfolios WHERE id = %s", (machine_id,))
+            if cur.fetchone():
+                continue
+            
+            # Create portfolio from machine
+            cur.execute("""
+                INSERT INTO portfolios (id, name, starting_capital, status, description)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (name) DO UPDATE SET
+                    starting_capital = EXCLUDED.starting_capital,
+                    status = EXCLUDED.status,
+                    updated_at = CURRENT_TIMESTAMP
+                RETURNING id
+            """, (
+                machine_id,
+                machine['name'],
+                machine['starting_capital'],
+                machine['status'],
+                f"Migrated from machine: {machine['name']}"
+            ))
+            
+            # Link portfolio to instrument
+            instrument_id = machine.get('instrument', 'MES')
+            timeframe = machine.get('timeframe', '15min')
+            
+            cur.execute("""
+                INSERT INTO portfolio_instruments (portfolio_id, instrument_id, timeframe, allocation_percent)
+                VALUES (%s, %s, %s, %s)
+                ON CONFLICT (portfolio_id, instrument_id, timeframe) DO UPDATE SET
+                    allocation_percent = EXCLUDED.allocation_percent
+            """, (machine_id, instrument_id, timeframe, 100.00))
+            
+            migrated_count += 1
+        
+        conn.commit()
+        return migrated_count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ========== Portfolio CRUD Operations (New) ==========
+
+def create_portfolio_db(portfolio_id, name, starting_capital, status, description=None):
+    """Create a new portfolio in database"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO portfolios (id, name, starting_capital, status, description)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (portfolio_id, name, starting_capital, status, description))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def add_instrument_to_portfolio(portfolio_id, instrument_id, timeframe, allocation_percent=100.00):
+    """Add an instrument to a portfolio"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO portfolio_instruments (portfolio_id, instrument_id, timeframe, allocation_percent)
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (portfolio_id, instrument_id, timeframe) DO UPDATE
+            SET allocation_percent = EXCLUDED.allocation_percent
+        """, (portfolio_id, instrument_id, timeframe, allocation_percent))
+        
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_all_portfolios():
+    """Get all portfolios"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT id, name, starting_capital, status, description, created_at
+            FROM portfolios
+            ORDER BY created_at DESC
+        """)
+        portfolios = cur.fetchall()
+        return [dict(p) for p in portfolios]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_portfolio_by_id(portfolio_id):
+    """Get a specific portfolio by ID"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT id, name, starting_capital, status, description, created_at
+            FROM portfolios
+            WHERE id = %s
+        """, (portfolio_id,))
+        portfolio = cur.fetchone()
+        if portfolio:
+            portfolio = dict(portfolio)
+            portfolio['starting_capital'] = float(portfolio['starting_capital'])
+        return portfolio
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_portfolio_instruments(portfolio_id):
+    """Get all instruments in a portfolio"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT pi.instrument_id, pi.timeframe, pi.allocation_percent,
+                   i.symbol, i.name, i.market_id, m.name as market_name
+            FROM portfolio_instruments pi
+            JOIN instruments i ON pi.instrument_id = i.id
+            JOIN markets m ON i.market_id = m.id
+            WHERE pi.portfolio_id = %s
+        """, (portfolio_id,))
+        instruments = cur.fetchall()
+        return [dict(inst) for inst in instruments]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_all_markets():
+    """Get all markets"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT id, name, description, created_at
+            FROM markets
+            ORDER BY name
+        """)
+        markets = cur.fetchall()
+        return [dict(m) for m in markets]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_instruments_by_market(market_id):
+    """Get all instruments for a specific market"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT id, symbol, name, description, created_at
+            FROM instruments
+            WHERE market_id = %s
+            ORDER BY symbol
+        """, (market_id,))
+        instruments = cur.fetchall()
+        return [dict(i) for i in instruments]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_all_instruments():
+    """Get all instruments across all markets"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        cur.execute("""
+            SELECT i.id, i.symbol, i.name, i.description, i.market_id,
+                   m.name as market_name
+            FROM instruments i
+            JOIN markets m ON i.market_id = m.id
+            ORDER BY m.name, i.symbol
+        """)
+        instruments = cur.fetchall()
+        return [dict(i) for i in instruments]
     finally:
         cur.close()
         conn.close()
