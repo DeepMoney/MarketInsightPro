@@ -203,6 +203,45 @@ def get_machine_by_id(machine_id):
         conn.close()
 
 
+def update_machine_db(machine_id, name=None, starting_capital=None, timeframe=None, status=None):
+    """Update an existing machine's properties"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        updates = []
+        params = []
+        
+        if name is not None:
+            updates.append("name = %s")
+            params.append(name)
+        if starting_capital is not None:
+            updates.append("starting_capital = %s")
+            params.append(starting_capital)
+        if timeframe is not None:
+            updates.append("timeframe = %s")
+            params.append(timeframe)
+        if status is not None:
+            updates.append("status = %s")
+            params.append(status)
+        
+        if not updates:
+            return False
+        
+        params.append(machine_id)
+        query = f"UPDATE machines SET {', '.join(updates)} WHERE id = %s"
+        
+        cur.execute(query, params)
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
 def delete_machine_db(machine_id):
     """Delete a machine (cascades to trades and scenarios)"""
     conn = get_db_connection()

@@ -41,8 +41,10 @@ if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
 if 'show_machine_creator' not in st.session_state:
     st.session_state.show_machine_creator = False
+if 'show_machine_editor' not in st.session_state:
+    st.session_state.show_machine_editor = False
 
-from database import get_all_machines, create_machine_db, bulk_insert_trades, get_trades_for_machine, get_scenarios_for_machine, init_database, get_market_data, bulk_insert_market_data
+from database import get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, get_trades_for_machine, get_scenarios_for_machine, init_database, get_market_data, bulk_insert_market_data
 from data_generator import generate_market_data, generate_trade_data
 import uuid as uuid_lib
 
@@ -69,6 +71,13 @@ if st.session_state.show_machine_creator:
         with col2:
             status = st.selectbox("Status", options=['live', 'simulated'], format_func=lambda x: f"🟢 Live" if x == 'live' else "⚪ Simulated")
             data_source = st.radio("Trade Data Source:", ["Generate Mock Data", "Upload CSV Files"])
+        
+        csv_file = None
+        if data_source == "Upload CSV Files":
+            st.markdown("**CSV Format Requirements:**")
+            st.caption("Required columns: `instrument`, `direction`, `entry_time`, `exit_time`, `entry_price`, `exit_price`, `pnl`")
+            st.caption("Optional columns: `contracts`, `initial_risk`, `r_multiple`, `holding_minutes`, `stop_price`")
+            csv_file = st.file_uploader("Upload Trade CSV", type=['csv'], key="trade_csv_upload")
         
         col_btn1, col_btn2 = st.columns(2)
         create_btn = col_btn1.form_submit_button("✅ Create Machine", use_container_width=True, type="primary")
@@ -106,6 +115,53 @@ if st.session_state.show_machine_creator:
                             bulk_insert_trades(machine_id, mes_trades_df)
                             bulk_insert_trades(machine_id, mnq_trades_df)
                         
+                        elif data_source == "Upload CSV Files" and csv_file is not None:
+                            # Parse and validate CSV file
+                            import pandas as pd
+                            trades_df = pd.read_csv(csv_file)
+                            
+                            # Validate required columns
+                            required_cols = ['instrument', 'direction', 'entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl']
+                            missing_cols = [col for col in required_cols if col not in trades_df.columns]
+                            
+                            if missing_cols:
+                                raise ValueError(f"Missing required columns: {', '.join(missing_cols)}")
+                            
+                            # Add optional columns with defaults if not present
+                            if 'trade_id' not in trades_df.columns:
+                                trades_df['trade_id'] = [f"{row['instrument']}_{i+1}" for i, row in trades_df.iterrows()]
+                            if 'contracts' not in trades_df.columns:
+                                trades_df['contracts'] = 1
+                            if 'timeframe' not in trades_df.columns:
+                                trades_df['timeframe'] = timeframe
+                            
+                            # Calculate optional fields if not present
+                            if 'holding_minutes' not in trades_df.columns:
+                                trades_df['entry_time'] = pd.to_datetime(trades_df['entry_time'])
+                                trades_df['exit_time'] = pd.to_datetime(trades_df['exit_time'])
+                                trades_df['holding_minutes'] = (trades_df['exit_time'] - trades_df['entry_time']).dt.total_seconds() / 60
+                            
+                            if 'entry_hour' not in trades_df.columns:
+                                trades_df['entry_hour'] = pd.to_datetime(trades_df['entry_time']).dt.hour
+                            if 'exit_hour' not in trades_df.columns:
+                                trades_df['exit_hour'] = pd.to_datetime(trades_df['exit_time']).dt.hour
+                            
+                            if 'outcome' not in trades_df.columns:
+                                trades_df['outcome'] = trades_df['pnl'].apply(lambda x: 'Win' if x > 0 else ('Loss' if x < 0 else 'Breakeven'))
+                            
+                            if 'initial_risk' not in trades_df.columns:
+                                trades_df['initial_risk'] = abs(trades_df['pnl'] * 0.5)  # Rough estimate
+                            
+                            if 'r_multiple' not in trades_df.columns:
+                                trades_df['r_multiple'] = trades_df['pnl'] / trades_df['initial_risk'].replace(0, 1)
+                            
+                            if 'stop_price' not in trades_df.columns:
+                                trades_df['stop_price'] = trades_df['entry_price'] * 0.98  # Default 2% stop
+                            
+                            # Insert trades into database
+                            bulk_insert_trades(machine_id, trades_df)
+                            st.info(f"✅ Imported {len(trades_df)} trades from CSV")
+                        
                         st.session_state.show_machine_creator = False
                         st.session_state.active_machine_id = machine_id
                         st.success(f"✅ Machine '{machine_name}' created successfully!")
@@ -120,6 +176,62 @@ if st.session_state.show_machine_creator:
         if cancel_btn:
             st.session_state.show_machine_creator = False
             st.rerun()
+    
+    st.stop()
+
+if st.session_state.show_machine_editor and st.session_state.active_machine_id:
+    from database import get_machine_by_id
+    machine_to_edit = get_machine_by_id(st.session_state.active_machine_id)
+    
+    if machine_to_edit:
+        st.markdown("### ✏️ Edit Machine")
+        
+        with st.form("machine_editor_form"):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                edit_name = st.text_input("Machine Name", value=machine_to_edit['name'])
+                edit_capital = st.number_input("Starting Capital ($)", 
+                                               min_value=10000, 
+                                               max_value=10000000, 
+                                               value=int(machine_to_edit['starting_capital']), 
+                                               step=5000)
+                edit_timeframe = st.selectbox("Timeframe", 
+                                             options=['5min', '15min', '30min', '1hr', '4hr', 'daily'],
+                                             index=['5min', '15min', '30min', '1hr', '4hr', 'daily'].index(machine_to_edit['timeframe']))
+            
+            with col2:
+                edit_status = st.selectbox("Status", 
+                                          options=['live', 'simulated'],
+                                          index=0 if machine_to_edit['status'] == 'live' else 1,
+                                          format_func=lambda x: f"🟢 Live" if x == 'live' else "⚪ Simulated")
+            
+            st.warning("⚠️ Changing timeframe or capital will affect scenario calculations. Consider re-creating scenarios after updating.")
+            
+            col_btn1, col_btn2 = st.columns(2)
+            save_btn = col_btn1.form_submit_button("💾 Save Changes", use_container_width=True, type="primary")
+            cancel_btn = col_btn2.form_submit_button("❌ Cancel", use_container_width=True)
+            
+            if save_btn:
+                try:
+                    update_machine_db(
+                        st.session_state.active_machine_id,
+                        name=edit_name,
+                        starting_capital=edit_capital,
+                        timeframe=edit_timeframe,
+                        status=edit_status
+                    )
+                    st.session_state.show_machine_editor = False
+                    st.success(f"✅ Machine '{edit_name}' updated successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error updating machine: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+            
+            if cancel_btn:
+                st.session_state.show_machine_editor = False
+                st.rerun()
     
     st.stop()
 
@@ -186,8 +298,13 @@ with st.sidebar:
     
     st.divider()
     
-    if st.button("➕ Create New Machine", use_container_width=True):
+    col_btn1, col_btn2 = st.columns(2)
+    if col_btn1.button("➕ Create", use_container_width=True):
         st.session_state.show_machine_creator = True
+        st.rerun()
+    
+    if col_btn2.button("✏️ Edit", use_container_width=True, disabled=not st.session_state.active_machine_id):
+        st.session_state.show_machine_editor = True
         st.rerun()
     
     if st.session_state.active_machine_id:
@@ -505,11 +622,14 @@ with tab5:
             
             if not market.empty:
                 market['timestamp'] = pd.to_datetime(market['timestamp'])
-            date_range = st.date_input(
-                "Date Range:",
-                value=(market['timestamp'].min().date(), market['timestamp'].max().date()),
-                key="chart_date_range"
-            )
+                date_range = st.date_input(
+                    "Date Range:",
+                    value=(market['timestamp'].min().date(), market['timestamp'].max().date()),
+                    key="chart_date_range"
+                )
+            else:
+                st.warning(f"No market data available for {selected_instrument} on {active_machine['timeframe']} timeframe. Please generate market data first.")
+                st.stop()
             
             if len(date_range) == 2:
                 filtered_market = market[
@@ -517,10 +637,13 @@ with tab5:
                     (market['timestamp'].dt.date <= date_range[1])
                 ]
                 
-                filtered_trades = trades[
-                    (pd.to_datetime(trades['entry_time']).dt.date >= date_range[0]) &
-                    (pd.to_datetime(trades['entry_time']).dt.date <= date_range[1])
-                ]
+                if not trades.empty:
+                    filtered_trades = trades[
+                        (pd.to_datetime(trades['entry_time']).dt.date >= date_range[0]) &
+                        (pd.to_datetime(trades['entry_time']).dt.date <= date_range[1])
+                    ]
+                else:
+                    filtered_trades = pd.DataFrame()
                 
                 fig = create_candlestick_chart(
                     filtered_market,
