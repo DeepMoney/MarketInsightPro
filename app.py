@@ -45,11 +45,19 @@ if 'show_portfolio_editor' not in st.session_state:
     st.session_state.show_portfolio_editor = False
 if 'selected_market' not in st.session_state:
     st.session_state.selected_market = None
+if 'selected_market_id' not in st.session_state:
+    st.session_state.selected_market_id = None
+if 'navigation_mode' not in st.session_state:
+    st.session_state.navigation_mode = 'markets'  # markets, instruments, portfolios
+if 'selected_instrument_id' not in st.session_state:
+    st.session_state.selected_instrument_id = None
 
 from database import (
     get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
     get_trades_for_machine, get_scenarios_for_machine, init_database, 
-    get_market_data, bulk_insert_market_data, seed_initial_data, migrate_machines_to_portfolios
+    get_market_data, bulk_insert_market_data, seed_initial_data, migrate_machines_to_portfolios,
+    get_all_markets, get_instruments_by_market, get_all_portfolios, get_portfolio_by_id,
+    create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments
 )
 from data_generator import generate_market_data, generate_trade_data
 import uuid as uuid_lib
@@ -65,65 +73,110 @@ except Exception as e:
     st.info("Please ensure PostgreSQL is running and DATABASE_URL environment variable is set.")
     st.stop()
 
-if st.session_state.selected_market is None:
-    st.header("📁 Select a Market")
-    st.markdown("Choose a market to view and manage trading machines:")
+# ========== NEW NAVIGATION: Markets → Instruments → Portfolios ==========
+
+# Navigation Mode: Markets
+if st.session_state.navigation_mode == 'markets':
+    st.header("📁 Markets")
+    st.markdown("Select a market to view its instruments and portfolios:")
     
-    col1, col2 = st.columns(2)
+    # Get all markets from database
+    markets = get_all_markets()
     
-    with col1:
-        st.markdown("### 📈 Micro S&P 500 (MES)")
-        mes_machines = get_all_machines(instrument='MES')
-        mes_count = len(mes_machines)
-        mes_live_count = len([m for m in mes_machines if m['status'] == 'live'])
-        
-        st.metric("Total Machines", mes_count)
-        st.metric("Live Machines", mes_live_count)
-        
-        if st.button("View MES Machines", use_container_width=True, type="primary", key="select_mes"):
-            st.session_state.selected_market = 'MES'
-            st.rerun()
-    
-    with col2:
-        st.markdown("### 📊 Micro Nasdaq (MNQ)")
-        mnq_machines = get_all_machines(instrument='MNQ')
-        mnq_count = len(mnq_machines)
-        mnq_live_count = len([m for m in mnq_machines if m['status'] == 'live'])
-        
-        st.metric("Total Machines", mnq_count)
-        st.metric("Live Machines", mnq_live_count)
-        
-        if st.button("View MNQ Machines", use_container_width=True, type="primary", key="select_mnq"):
-            st.session_state.selected_market = 'MNQ'
-            st.rerun()
-    
-    st.divider()
-    st.subheader("🎲 Initialize Market Data")
-    st.caption("Generate market data for both instruments across all timeframes before creating machines.")
-    
-    if st.button("Generate Market Data (All Markets & Timeframes)", use_container_width=True):
-        with st.spinner("Generating market data..."):
-            from datetime import timedelta
-            timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
-            total_inserted = 0
+    # Display market cards
+    cols = st.columns(min(len(markets), 3))
+    for idx, market in enumerate(markets):
+        with cols[idx % 3]:
+            # Market icon mapping
+            icons = {'index_futures': '📈', 'mt5': '💱', 'crypto': '₿'}
+            market_icon = icons.get(market['id'], '📊')
             
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=365 * 2)
+            st.markdown(f"### {market_icon} {market['name']}")
+            st.caption(market.get('description', ''))
             
-            for timeframe in timeframes:
-                for instrument in ['MES', 'MNQ']:
-                    from database import check_market_data_exists
-                    if not check_market_data_exists(instrument, timeframe):
-                        base_price = 5500 if instrument == 'MES' else 19500
-                        volatility = 0.015 if instrument == 'MES' else 0.02
-                        market_df = generate_market_data(instrument, start_date, end_date, base_price, volatility, timeframe)
-                        inserted = bulk_insert_market_data(market_df)
-                        total_inserted += inserted
+            # Count instruments and portfolios for this market
+            instruments = get_instruments_by_market(market['id'])
+            # Count unique base symbols (not timeframes)
+            unique_symbols = len(set([inst['symbol'] for inst in instruments]))
             
-            st.success(f"✅ Generated {total_inserted} market data rows!")
-            st.rerun()
+            st.metric("Instruments", f"{unique_symbols} symbols × 6 timeframes")
+            
+            if st.button(f"View {market['name']}", use_container_width=True, type="primary", key=f"select_market_{market['id']}"):
+                st.session_state.selected_market_id = market['id']
+                st.session_state.navigation_mode = 'instruments'
+                st.rerun()
     
     st.stop()
+
+# Navigation Mode: Instruments
+if st.session_state.navigation_mode == 'instruments':
+    # Sidebar navigation
+    with st.sidebar:
+        if st.button("← Back to Markets"):
+            st.session_state.navigation_mode = 'markets'
+            st.session_state.selected_market_id = None
+            st.rerun()
+    
+    # Get selected market
+    markets = get_all_markets()
+    current_market = next((m for m in markets if m['id'] == st.session_state.selected_market_id), None)
+    
+    if not current_market:
+        st.error("Market not found")
+        st.stop()
+    
+    st.header(f"📊 {current_market['name']} - Instruments")
+    st.markdown(f"*{current_market.get('description', '')}*")
+    
+    # Get instruments for this market
+    instruments = get_instruments_by_market(current_market['id'])
+    
+    # Group by symbol
+    symbols_dict = {}
+    for inst in instruments:
+        symbol = inst['symbol']
+        if symbol not in symbols_dict:
+            symbols_dict[symbol] = {'name': inst['name'].split(' - ')[0], 'timeframes': []}
+        symbols_dict[symbol]['timeframes'].append(inst['timeframe'])
+    
+    st.subheader(f"Available Instruments ({len(symbols_dict)} symbols)")
+    
+    # Display in columns
+    cols = st.columns(2)
+    for idx, (symbol, data) in enumerate(sorted(symbols_dict.items())):
+        with cols[idx % 2]:
+            with st.expander(f"**{symbol}** - {data['name']}", expanded=False):
+                st.write("**Timeframes:**", ", ".join(sorted(data['timeframes'])))
+                st.caption(f"{len(data['timeframes'])} timeframe variations available")
+    
+    st.divider()
+    
+    # Button to view portfolios
+    if st.button("➡️ View Portfolios", use_container_width=True, type="primary"):
+        st.session_state.navigation_mode = 'portfolios'
+        st.rerun()
+    
+    st.stop()
+
+# Navigation Mode: Portfolios (continues to old code below)
+if st.session_state.navigation_mode == 'portfolios':
+    # Sidebar navigation
+    with st.sidebar:
+        if st.button("← Back to Instruments"):
+            st.session_state.navigation_mode = 'instruments'
+            st.rerun()
+    
+    # Get selected market for context
+    markets = get_all_markets()
+    current_market = next((m for m in markets if m['id'] == st.session_state.selected_market_id), None)
+    
+    if current_market:
+        st.info(f"**Current Market:** {current_market['name']}")
+    
+    # Continue with old market-based flow below (will be replaced incrementally)
+    st.session_state.selected_market = 'MES'  # Temporary compatibility
+
+# Rest of old code continues below...
 
 if st.session_state.show_machine_creator:
     st.markdown(f"### ➕ Create New Machine for {st.session_state.selected_market}")

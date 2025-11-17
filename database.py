@@ -598,7 +598,7 @@ def delete_scenario(scenario_id):
 # ========== NEW ARCHITECTURE: Markets, Instruments, Portfolios ==========
 
 def seed_initial_data():
-    """Seed initial markets and instruments"""
+    """Seed initial markets and instruments with all timeframe combinations"""
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -617,27 +617,35 @@ def seed_initial_data():
                 ON CONFLICT (id) DO NOTHING
             """, (market_id, name, description))
         
-        # Seed Initial Instruments
-        instruments = [
+        # Base symbols with their markets
+        base_symbols = [
             # Index Futures
-            ('MES', 'index_futures', 'MES', 'Micro E-mini S&P 500', 'Micro futures contract tracking S&P 500 index'),
-            ('MNQ', 'index_futures', 'MNQ', 'Micro E-mini Nasdaq-100', 'Micro futures contract tracking Nasdaq-100 index'),
-            # MT5 Forex (examples)
-            ('EURUSD', 'mt5', 'EUR/USD', 'Euro / US Dollar', 'Major forex pair'),
-            ('USDJPY', 'mt5', 'USD/JPY', 'US Dollar / Japanese Yen', 'Major forex pair'),
-            ('USDCAD', 'mt5', 'USD/CAD', 'US Dollar / Canadian Dollar', 'Major forex pair'),
-            # Crypto (examples)
-            ('BTCUSDT', 'crypto', 'BTC/USDT', 'Bitcoin / Tether', 'Cryptocurrency pair'),
-            ('ETHUSDT', 'crypto', 'ETH/USDT', 'Ethereum / Tether', 'Cryptocurrency pair'),
-            ('LTCUSDT', 'crypto', 'LTC/USDT', 'Litecoin / Tether', 'Cryptocurrency pair'),
+            ('MES', 'index_futures', 'Micro E-mini S&P 500'),
+            ('MNQ', 'index_futures', 'Micro E-mini Nasdaq-100'),
+            # MT5 Forex
+            ('EURUSD', 'mt5', 'Euro vs US Dollar'),
+            ('USDJPY', 'mt5', 'US Dollar vs Japanese Yen'),
+            ('USDCAD', 'mt5', 'US Dollar vs Canadian Dollar'),
+            # Crypto
+            ('BTCUSDT', 'crypto', 'Bitcoin vs Tether'),
+            ('ETHUSDT', 'crypto', 'Ethereum vs Tether'),
+            ('LTCUSDT', 'crypto', 'Litecoin vs Tether'),
         ]
         
-        for inst_id, market_id, symbol, name, description in instruments:
-            cur.execute("""
-                INSERT INTO instruments (id, market_id, symbol, name, description)
-                VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (market_id, symbol) DO NOTHING
-            """, (inst_id, market_id, symbol, name, description))
+        # Timeframes
+        timeframes = ['5min', '15min', '30min', '1H', '4H', 'Daily']
+        
+        # Create instrument for each symbol-timeframe combination
+        for base_symbol, market_id, base_name in base_symbols:
+            for timeframe in timeframes:
+                instrument_id = f"{base_symbol}_{timeframe}"
+                instrument_name = f"{base_name} - {timeframe}"
+                
+                cur.execute("""
+                    INSERT INTO instruments (id, market_id, symbol, timeframe, name, description)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (id) DO NOTHING
+                """, (instrument_id, market_id, base_symbol, timeframe, instrument_name, f"{base_name} at {timeframe} timeframe"))
         
         conn.commit()
         return True
@@ -689,16 +697,17 @@ def migrate_machines_to_portfolios():
                 f"Migrated from machine: {machine['name']}"
             ))
             
-            # Link portfolio to instrument
-            instrument_id = machine.get('instrument', 'MES')
+            # Link portfolio to instrument using composite ID (symbol_timeframe)
+            base_symbol = machine.get('instrument', 'MES')
             timeframe = machine.get('timeframe', '15min')
+            instrument_id = f"{base_symbol}_{timeframe}"  # e.g., "MES_15min"
             
             cur.execute("""
-                INSERT INTO portfolio_instruments (portfolio_id, instrument_id, timeframe, allocation_percent)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (portfolio_id, instrument_id, timeframe) DO UPDATE SET
+                INSERT INTO portfolio_instruments (portfolio_id, instrument_id, allocation_percent)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (portfolio_id, instrument_id) DO UPDATE SET
                     allocation_percent = EXCLUDED.allocation_percent
-            """, (machine_id, instrument_id, timeframe, 100.00))
+            """, (machine_id, instrument_id, 100.00))
             
             migrated_count += 1
         
@@ -736,18 +745,18 @@ def create_portfolio_db(portfolio_id, name, starting_capital, status, descriptio
         conn.close()
 
 
-def add_instrument_to_portfolio(portfolio_id, instrument_id, timeframe, allocation_percent=100.00):
-    """Add an instrument to a portfolio"""
+def add_instrument_to_portfolio(portfolio_id, instrument_id, allocation_percent=100.00):
+    """Add an instrument to a portfolio (instrument_id includes timeframe, e.g., MES_15min)"""
     conn = get_db_connection()
     cur = conn.cursor()
     
     try:
         cur.execute("""
-            INSERT INTO portfolio_instruments (portfolio_id, instrument_id, timeframe, allocation_percent)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (portfolio_id, instrument_id, timeframe) DO UPDATE
+            INSERT INTO portfolio_instruments (portfolio_id, instrument_id, allocation_percent)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (portfolio_id, instrument_id) DO UPDATE
             SET allocation_percent = EXCLUDED.allocation_percent
-        """, (portfolio_id, instrument_id, timeframe, allocation_percent))
+        """, (portfolio_id, instrument_id, allocation_percent))
         
         conn.commit()
         return True
@@ -805,12 +814,13 @@ def get_portfolio_instruments(portfolio_id):
     
     try:
         cur.execute("""
-            SELECT pi.instrument_id, pi.timeframe, pi.allocation_percent,
-                   i.symbol, i.name, i.market_id, m.name as market_name
+            SELECT pi.instrument_id, pi.allocation_percent,
+                   i.symbol, i.timeframe, i.name, i.market_id, m.name as market_name
             FROM portfolio_instruments pi
             JOIN instruments i ON pi.instrument_id = i.id
             JOIN markets m ON i.market_id = m.id
             WHERE pi.portfolio_id = %s
+            ORDER BY i.market_id, i.symbol, i.timeframe
         """, (portfolio_id,))
         instruments = cur.fetchall()
         return [dict(inst) for inst in instruments]
