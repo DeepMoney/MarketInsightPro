@@ -14,6 +14,8 @@ def calculate_all_metrics(trades_df, starting_capital=50000):
     Returns:
     - Dictionary with all 16 metrics
     """
+    # Convert Decimal to float for arithmetic operations
+    starting_capital = float(starting_capital) if starting_capital is not None else 50000
     
     if trades_df.empty:
         return get_empty_metrics()
@@ -51,6 +53,8 @@ def calculate_all_metrics(trades_df, starting_capital=50000):
     risk_of_ruin = calculate_risk_of_ruin(win_prob, avg_win, abs(avg_loss), starting_capital)
     
     trades_sorted = trades.sort_values('exit_time')
+    # Convert pnl to float before cumsum to avoid Decimal issues
+    trades_sorted['pnl'] = trades_sorted['pnl'].astype(float)
     trades_sorted['cumulative_pnl'] = trades_sorted['pnl'].cumsum()
     trades_sorted['equity'] = starting_capital + trades_sorted['cumulative_pnl']
     
@@ -128,6 +132,12 @@ def calculate_risk_of_ruin(win_prob, avg_win, avg_loss, capital):
     Calculate Risk of Ruin using Kelly Criterion and drawdown probability
     Simplified formula based on win probability and payoff ratio
     """
+    # Convert Decimal to float for arithmetic operations
+    win_prob = float(win_prob) if win_prob is not None else 0
+    avg_win = float(avg_win) if avg_win is not None else 0
+    avg_loss = float(avg_loss) if avg_loss is not None else 0
+    capital = float(capital) if capital is not None else 0
+    
     if avg_loss == 0 or win_prob == 0:
         return 0
     

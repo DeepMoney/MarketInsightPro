@@ -20,6 +20,16 @@ def get_db_connection():
         password=os.environ.get('PGPASSWORD')
     )
 
+def _normalize_numeric_columns(df, numeric_cols):
+    """
+    Convert Decimal columns to float to avoid type errors in arithmetic operations.
+    PostgreSQL DECIMAL columns come as decimal.Decimal objects via psycopg2.
+    """
+    for col in numeric_cols:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    return df
+
 def init_database():
     """Initialize database schema"""
     conn = get_db_connection()
@@ -183,7 +193,11 @@ def get_machine_by_id(machine_id):
             WHERE id = %s
         """, (machine_id,))
         machine = cur.fetchone()
-        return dict(machine) if machine else None
+        if machine:
+            machine = dict(machine)
+            # Convert Decimal to float
+            machine['starting_capital'] = float(machine['starting_capital'])
+        return machine
     finally:
         cur.close()
         conn.close()
@@ -280,7 +294,14 @@ def get_trades_for_machine(machine_id):
         if not trades:
             return pd.DataFrame()
         
-        return pd.DataFrame([dict(t) for t in trades])
+        df = pd.DataFrame([dict(t) for t in trades])
+        
+        # Normalize numeric columns to float
+        numeric_cols = ['entry_price', 'exit_price', 'pnl', 'initial_risk', 'r_multiple', 
+                        'holding_minutes', 'stop_price', 'contracts']
+        df = _normalize_numeric_columns(df, numeric_cols)
+        
+        return df
     finally:
         cur.close()
         conn.close()
@@ -344,7 +365,13 @@ def get_market_data(instrument, timeframe):
         if not data:
             return pd.DataFrame()
         
-        return pd.DataFrame([dict(d) for d in data])
+        df = pd.DataFrame([dict(d) for d in data])
+        
+        # Normalize numeric columns to float
+        numeric_cols = ['open', 'high', 'low', 'close', 'volume']
+        df = _normalize_numeric_columns(df, numeric_cols)
+        
+        return df
     finally:
         cur.close()
         conn.close()

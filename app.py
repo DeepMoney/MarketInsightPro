@@ -84,19 +84,23 @@ if st.session_state.show_machine_creator:
                         
                         if data_source == "Generate Mock Data":
                             # Step 1: Generate or load market data for this timeframe
+                            from datetime import datetime, timedelta
+                            end_date = datetime.now()
+                            start_date = end_date - timedelta(days=365 * 2)  # 2 years of data
+                            
                             mes_market_df = get_market_data('MES', timeframe)
                             if mes_market_df.empty:
-                                mes_market_df = generate_market_data('MES', timeframe)
+                                mes_market_df = generate_market_data('MES', start_date, end_date, base_price=5500, volatility=0.015, timeframe=timeframe)
                                 bulk_insert_market_data(mes_market_df)
                             
                             mnq_market_df = get_market_data('MNQ', timeframe)
                             if mnq_market_df.empty:
-                                mnq_market_df = generate_market_data('MNQ', timeframe)
+                                mnq_market_df = generate_market_data('MNQ', start_date, end_date, base_price=19500, volatility=0.02, timeframe=timeframe)
                                 bulk_insert_market_data(mnq_market_df)
                             
                             # Step 2: Generate trades using the market data
-                            mes_trades_df = generate_trade_data('MES', mes_market_df, starting_capital)
-                            mnq_trades_df = generate_trade_data('MNQ', mnq_market_df, starting_capital)
+                            mes_trades_df = generate_trade_data('MES', mes_market_df, trades_per_day_range=(2, 3), starting_capital=starting_capital)
+                            mnq_trades_df = generate_trade_data('MNQ', mnq_market_df, trades_per_day_range=(2, 3), starting_capital=starting_capital)
                             
                             # Step 3: Insert trades into database
                             bulk_insert_trades(machine_id, mes_trades_df)
@@ -142,7 +146,7 @@ if st.session_state.active_machine_id:
                     st.session_state.active_machine_id,
                     baseline['name'],
                     True,
-                    baseline['parameters'],
+                    baseline['params'],  # Fixed: was 'parameters', should be 'params'
                     baseline.get('metrics'),
                     baseline.get('modified_trades')
                 )
@@ -203,10 +207,16 @@ with st.sidebar:
             timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
             total_inserted = 0
             
+            from datetime import datetime, timedelta
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365 * 2)
+            
             for timeframe in timeframes:
                 for instrument in ['MES', 'MNQ']:
                     if not check_market_data_exists(instrument, timeframe):
-                        market_df = generate_market_data(instrument, timeframe)
+                        base_price = 5500 if instrument == 'MES' else 19500
+                        volatility = 0.015 if instrument == 'MES' else 0.02
+                        market_df = generate_market_data(instrument, start_date, end_date, base_price, volatility, timeframe)
                         inserted = bulk_insert_market_data(market_df)
                         total_inserted += inserted
             

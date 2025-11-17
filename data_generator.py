@@ -118,8 +118,9 @@ def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), star
             
             direction = random.choice(['Long', 'Short'])
             
-            entry_price = round(entry_row['open'] + random.uniform(-0.5, 0.5), 2)
-            exit_price = round(exit_row['close'] + random.uniform(-0.5, 0.5), 2)
+            # Convert Decimal to float for arithmetic operations
+            entry_price = round(float(entry_row['open']) + random.uniform(-0.5, 0.5), 2)
+            exit_price = round(float(exit_row['close']) + random.uniform(-0.5, 0.5), 2)
             
             capital_for_trade = starting_capital * allocation_pct * instrument_split_pct
             contracts = max(1, int(capital_for_trade / margin_requirement))
