@@ -64,12 +64,26 @@ def init_database():
             CREATE TABLE IF NOT EXISTS machines (
                 id UUID PRIMARY KEY,
                 name VARCHAR(255) NOT NULL UNIQUE,
+                instrument VARCHAR(10) NOT NULL DEFAULT 'MES',
                 starting_capital DECIMAL(12, 2) NOT NULL,
                 timeframe VARCHAR(10) NOT NULL,
                 status VARCHAR(20) NOT NULL CHECK (status IN ('live', 'simulated')),
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+        
+        # Migrate existing machines table to add instrument column if missing
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'machines' AND column_name = 'instrument'
+                ) THEN
+                    ALTER TABLE machines ADD COLUMN instrument VARCHAR(10) NOT NULL DEFAULT 'MES';
+                END IF;
+            END $$;
         """)
         
         # Trades Table (per machine)
@@ -141,17 +155,17 @@ def init_database():
 
 # ========== Machine CRUD Operations ==========
 
-def create_machine_db(machine_id, name, starting_capital, timeframe, status):
+def create_machine_db(machine_id, name, instrument, starting_capital, timeframe, status):
     """Create a new machine in database"""
     conn = get_db_connection()
     cur = conn.cursor()
     
     try:
         cur.execute("""
-            INSERT INTO machines (id, name, starting_capital, timeframe, status)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO machines (id, name, instrument, starting_capital, timeframe, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
-        """, (machine_id, name, starting_capital, timeframe, status))
+        """, (machine_id, name, instrument, starting_capital, timeframe, status))
         
         conn.commit()
         return True
@@ -163,17 +177,25 @@ def create_machine_db(machine_id, name, starting_capital, timeframe, status):
         conn.close()
 
 
-def get_all_machines():
-    """Get all machines"""
+def get_all_machines(instrument=None):
+    """Get all machines, optionally filtered by instrument"""
     conn = get_db_connection()
     cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
-        cur.execute("""
-            SELECT id, name, starting_capital, timeframe, status, created_at
-            FROM machines
-            ORDER BY created_at DESC
-        """)
+        if instrument:
+            cur.execute("""
+                SELECT id, name, instrument, starting_capital, timeframe, status, created_at
+                FROM machines
+                WHERE instrument = %s
+                ORDER BY created_at DESC
+            """, (instrument,))
+        else:
+            cur.execute("""
+                SELECT id, name, instrument, starting_capital, timeframe, status, created_at
+                FROM machines
+                ORDER BY created_at DESC
+            """)
         machines = cur.fetchall()
         return [dict(m) for m in machines]
     finally:
@@ -188,7 +210,7 @@ def get_machine_by_id(machine_id):
     
     try:
         cur.execute("""
-            SELECT id, name, starting_capital, timeframe, status, created_at
+            SELECT id, name, instrument, starting_capital, timeframe, status, created_at
             FROM machines
             WHERE id = %s
         """, (machine_id,))
@@ -203,7 +225,7 @@ def get_machine_by_id(machine_id):
         conn.close()
 
 
-def update_machine_db(machine_id, name=None, starting_capital=None, timeframe=None, status=None):
+def update_machine_db(machine_id, name=None, instrument=None, starting_capital=None, timeframe=None, status=None):
     """Update an existing machine's properties"""
     conn = get_db_connection()
     cur = conn.cursor()
@@ -215,6 +237,9 @@ def update_machine_db(machine_id, name=None, starting_capital=None, timeframe=No
         if name is not None:
             updates.append("name = %s")
             params.append(name)
+        if instrument is not None:
+            updates.append("instrument = %s")
+            params.append(instrument)
         if starting_capital is not None:
             updates.append("starting_capital = %s")
             params.append(starting_capital)

@@ -43,6 +43,8 @@ if 'show_machine_creator' not in st.session_state:
     st.session_state.show_machine_creator = False
 if 'show_machine_editor' not in st.session_state:
     st.session_state.show_machine_editor = False
+if 'selected_market' not in st.session_state:
+    st.session_state.selected_market = None
 
 from database import get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, get_trades_for_machine, get_scenarios_for_machine, init_database, get_market_data, bulk_insert_market_data
 from data_generator import generate_market_data, generate_trade_data
@@ -57,18 +59,79 @@ except Exception as e:
     st.info("Please ensure PostgreSQL is running and DATABASE_URL environment variable is set.")
     st.stop()
 
+if st.session_state.selected_market is None:
+    st.header("📁 Select a Market")
+    st.markdown("Choose a market to view and manage trading machines:")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📈 Micro S&P 500 (MES)")
+        mes_machines = get_all_machines(instrument='MES')
+        mes_count = len(mes_machines)
+        mes_live_count = len([m for m in mes_machines if m['status'] == 'live'])
+        
+        st.metric("Total Machines", mes_count)
+        st.metric("Live Machines", mes_live_count)
+        
+        if st.button("View MES Machines", use_container_width=True, type="primary", key="select_mes"):
+            st.session_state.selected_market = 'MES'
+            st.rerun()
+    
+    with col2:
+        st.markdown("### 📊 Micro Nasdaq (MNQ)")
+        mnq_machines = get_all_machines(instrument='MNQ')
+        mnq_count = len(mnq_machines)
+        mnq_live_count = len([m for m in mnq_machines if m['status'] == 'live'])
+        
+        st.metric("Total Machines", mnq_count)
+        st.metric("Live Machines", mnq_live_count)
+        
+        if st.button("View MNQ Machines", use_container_width=True, type="primary", key="select_mnq"):
+            st.session_state.selected_market = 'MNQ'
+            st.rerun()
+    
+    st.divider()
+    st.subheader("🎲 Initialize Market Data")
+    st.caption("Generate market data for both instruments across all timeframes before creating machines.")
+    
+    if st.button("Generate Market Data (All Markets & Timeframes)", use_container_width=True):
+        with st.spinner("Generating market data..."):
+            from datetime import timedelta
+            timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
+            total_inserted = 0
+            
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=365 * 2)
+            
+            for timeframe in timeframes:
+                for instrument in ['MES', 'MNQ']:
+                    from database import check_market_data_exists
+                    if not check_market_data_exists(instrument, timeframe):
+                        base_price = 5500 if instrument == 'MES' else 19500
+                        volatility = 0.015 if instrument == 'MES' else 0.02
+                        market_df = generate_market_data(instrument, start_date, end_date, base_price, volatility, timeframe)
+                        inserted = bulk_insert_market_data(market_df)
+                        total_inserted += inserted
+            
+            st.success(f"✅ Generated {total_inserted} market data rows!")
+            st.rerun()
+    
+    st.stop()
+
 if st.session_state.show_machine_creator:
-    st.markdown("### ➕ Create New Machine")
+    st.markdown(f"### ➕ Create New Machine for {st.session_state.selected_market}")
     
     with st.form("machine_creator_form"):
         col1, col2 = st.columns(2)
         
         with col1:
-            machine_name = st.text_input("Machine Name", placeholder="e.g., Live Trading $100k (15min)")
+            machine_name = st.text_input("Machine Name", placeholder=f"e.g., {st.session_state.selected_market} Live $100k (15min)")
             starting_capital = st.number_input("Starting Capital ($)", min_value=10000, max_value=10000000, value=50000, step=5000)
             timeframe = st.selectbox("Timeframe", options=['5min', '15min', '30min', '1hr', '4hr', 'daily'], index=1)
         
         with col2:
+            st.info(f"**Market:** {st.session_state.selected_market}")
             status = st.selectbox("Status", options=['live', 'simulated'], format_func=lambda x: f"🟢 Live" if x == 'live' else "⚪ Simulated")
             data_source = st.radio("Trade Data Source:", ["Generate Mock Data", "Upload CSV Files"])
         
@@ -89,7 +152,8 @@ if st.session_state.show_machine_creator:
                 
                 with st.spinner("Creating machine and generating data..."):
                     try:
-                        create_machine_db(machine_id, machine_name, starting_capital, timeframe, status)
+                        selected_instrument = st.session_state.selected_market
+                        create_machine_db(machine_id, machine_name, selected_instrument, starting_capital, timeframe, status)
                         
                         if data_source == "Generate Mock Data":
                             # Step 1: Generate or load market data for this timeframe
@@ -97,23 +161,18 @@ if st.session_state.show_machine_creator:
                             end_date = datetime.now()
                             start_date = end_date - timedelta(days=365 * 2)  # 2 years of data
                             
-                            mes_market_df = get_market_data('MES', timeframe)
-                            if mes_market_df.empty:
-                                mes_market_df = generate_market_data('MES', start_date, end_date, base_price=5500, volatility=0.015, timeframe=timeframe)
-                                bulk_insert_market_data(mes_market_df)
-                            
-                            mnq_market_df = get_market_data('MNQ', timeframe)
-                            if mnq_market_df.empty:
-                                mnq_market_df = generate_market_data('MNQ', start_date, end_date, base_price=19500, volatility=0.02, timeframe=timeframe)
-                                bulk_insert_market_data(mnq_market_df)
+                            market_df = get_market_data(selected_instrument, timeframe)
+                            if market_df.empty:
+                                base_price = 5500 if selected_instrument == 'MES' else 19500
+                                volatility = 0.015 if selected_instrument == 'MES' else 0.02
+                                market_df = generate_market_data(selected_instrument, start_date, end_date, base_price=base_price, volatility=volatility, timeframe=timeframe)
+                                bulk_insert_market_data(market_df)
                             
                             # Step 2: Generate trades using the market data
-                            mes_trades_df = generate_trade_data('MES', mes_market_df, trades_per_day_range=(2, 3), starting_capital=starting_capital)
-                            mnq_trades_df = generate_trade_data('MNQ', mnq_market_df, trades_per_day_range=(2, 3), starting_capital=starting_capital)
+                            trades_df = generate_trade_data(selected_instrument, market_df, trades_per_day_range=(2, 3), starting_capital=starting_capital)
                             
                             # Step 3: Insert trades into database
-                            bulk_insert_trades(machine_id, mes_trades_df)
-                            bulk_insert_trades(machine_id, mnq_trades_df)
+                            bulk_insert_trades(machine_id, trades_df)
                         
                         elif data_source == "Upload CSV Files" and csv_file is not None:
                             # Parse and validate CSV file
@@ -268,35 +327,44 @@ if st.session_state.active_machine_id:
         st.session_state.active_machine_id = None
 
 with st.sidebar:
-    st.header("🤖 Machine Management")
-    
-    from database import get_all_machines, create_machine_db, delete_machine_db, bulk_insert_trades, get_trades_for_machine
-    from database import init_database, get_market_data, check_market_data_exists, bulk_insert_market_data
-    
-    init_database()
-    
-    db_machines = get_all_machines()
-    
-    if db_machines:
-        machine_options = {m['id']: f"{'🟢' if m['status'] == 'live' else '⚪'} {m['name']}" for m in db_machines}
+    if st.session_state.selected_market:
+        st.markdown(f"### 📍 {st.session_state.selected_market} Market")
         
-        selected_machine_id = st.selectbox(
-            "Select Machine:",
-            options=list(machine_options.keys()),
-            format_func=lambda x: machine_options[x],
-            index=list(machine_options.keys()).index(st.session_state.active_machine_id) if st.session_state.active_machine_id in machine_options else 0
-        )
-        
-        if selected_machine_id != st.session_state.active_machine_id:
-            st.session_state.active_machine_id = selected_machine_id
+        if st.button("← Back to Markets", use_container_width=True):
+            st.session_state.selected_market = None
+            st.session_state.active_machine_id = None
             st.rerun()
         
-        st.info(f"**Machines**: {len(db_machines)} total")
-    else:
-        st.warning("No machines created yet. Create your first machine below!")
-        st.session_state.active_machine_id = None
-    
-    st.divider()
+        st.divider()
+        st.header("🤖 Machine Management")
+        
+        from database import get_all_machines, create_machine_db, delete_machine_db, bulk_insert_trades, get_trades_for_machine
+        from database import init_database, get_market_data, check_market_data_exists, bulk_insert_market_data
+        
+        init_database()
+        
+        db_machines = get_all_machines(instrument=st.session_state.selected_market)
+        
+        if db_machines:
+            machine_options = {m['id']: f"{'🟢' if m['status'] == 'live' else '⚪'} {m['name']}" for m in db_machines}
+            
+            selected_machine_id = st.selectbox(
+                "Select Machine:",
+                options=list(machine_options.keys()),
+                format_func=lambda x: machine_options[x],
+                index=list(machine_options.keys()).index(st.session_state.active_machine_id) if st.session_state.active_machine_id in machine_options else 0
+            )
+            
+            if selected_machine_id != st.session_state.active_machine_id:
+                st.session_state.active_machine_id = selected_machine_id
+                st.rerun()
+            
+            st.info(f"**Machines**: {len(db_machines)} for {st.session_state.selected_market}")
+        else:
+            st.warning(f"No machines created for {st.session_state.selected_market} yet. Create your first machine below!")
+            st.session_state.active_machine_id = None
+        
+        st.divider()
     
     col_btn1, col_btn2 = st.columns(2)
     if col_btn1.button("➕ Create", use_container_width=True):
@@ -314,34 +382,34 @@ with st.sidebar:
             st.success("Machine deleted!")
             st.rerun()
     
-    st.divider()
-    st.subheader("📁 Initialize Market Data")
-    
-    if st.button("🎲 Generate Market Data (All Timeframes)", use_container_width=True):
-        with st.spinner("Generating market data for all timeframes..."):
-            from data_generator import generate_market_data
-            
-            timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
-            total_inserted = 0
-            
-            from datetime import datetime, timedelta
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=365 * 2)
-            
-            for timeframe in timeframes:
-                for instrument in ['MES', 'MNQ']:
+        st.divider()
+        st.subheader(f"📁 Market Data for {st.session_state.selected_market}")
+        
+        if st.button(f"🎲 Generate Data (All Timeframes)", use_container_width=True):
+            with st.spinner(f"Generating market data for {st.session_state.selected_market}..."):
+                from data_generator import generate_market_data
+                
+                timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
+                total_inserted = 0
+                
+                from datetime import datetime, timedelta
+                end_date = datetime.now()
+                start_date = end_date - timedelta(days=365 * 2)
+                
+                instrument = st.session_state.selected_market
+                for timeframe in timeframes:
                     if not check_market_data_exists(instrument, timeframe):
                         base_price = 5500 if instrument == 'MES' else 19500
                         volatility = 0.015 if instrument == 'MES' else 0.02
                         market_df = generate_market_data(instrument, start_date, end_date, base_price, volatility, timeframe)
                         inserted = bulk_insert_market_data(market_df)
                         total_inserted += inserted
-            
-            st.success(f"✅ Generated {total_inserted} market data rows across all timeframes!")
-            st.rerun()
-    
-    
-    st.caption("💡 Market data is automatically generated for all timeframes and shared across machines")
+                
+                st.success(f"✅ Generated {total_inserted} market data rows for {st.session_state.selected_market}!")
+                st.rerun()
+        
+        
+        st.caption(f"💡 Market data for {st.session_state.selected_market} is automatically generated when creating machines")
 
 if not st.session_state.active_machine_id or not active_machine:
     st.info("👈 Please create a machine to begin analysis")
