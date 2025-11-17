@@ -42,217 +42,182 @@ if 'data_loaded' not in st.session_state:
 if 'show_machine_creator' not in st.session_state:
     st.session_state.show_machine_creator = False
 
-with st.sidebar:
-    st.header("⚙️ Configuration")
+from database import get_all_machines, create_machine_db, bulk_insert_trades, get_trades_for_machine, get_scenarios_for_machine, init_database, get_market_data, bulk_insert_market_data
+from data_generator import generate_market_data, generate_trade_data
+import uuid as uuid_lib
+
+try:
+    init_database()
+    db_available = True
+except Exception as e:
+    db_available = False
+    st.error(f"⚠️ Database connection failed: {str(e)}")
+    st.info("Please ensure PostgreSQL is running and DATABASE_URL environment variable is set.")
+    st.stop()
+
+if st.session_state.show_machine_creator:
+    st.markdown("### ➕ Create New Machine")
     
-    st.session_state.starting_capital = st.number_input(
-        "Starting Capital ($)", 
-        min_value=10000, 
-        max_value=1000000, 
-        value=50000, 
-        step=5000
-    )
-    
-    st.divider()
-    st.subheader("📁 Data Management")
-    
-    data_option = st.radio("Data Source:", ["Generate Mock Data", "Upload CSV Files"])
-    
-    if data_option == "Generate Mock Data":
-        if st.button("🎲 Generate Mock Data", use_container_width=True):
-            with st.spinner("Generating mock data... This may take a minute."):
-                mock_data = create_mock_data()
-                st.session_state.market_data = {
-                    'MES': mock_data['MES_market'],
-                    'MNQ': mock_data['MNQ_market']
-                }
-                st.session_state.trade_data = {
-                    'MES': mock_data['MES_trades'],
-                    'MNQ': mock_data['MNQ_trades']
-                }
-                st.session_state.data_loaded = True
-                
-                combined_trades = pd.concat([mock_data['MES_trades'], mock_data['MNQ_trades']])
-                combined_market = pd.concat([mock_data['MES_market'], mock_data['MNQ_market']])
-                
-                baseline = create_baseline_scenario(combined_trades, st.session_state.starting_capital)
-                st.session_state.scenarios = [baseline]
-                
-                st.success("✅ Mock data generated successfully!")
-                st.rerun()
+    with st.form("machine_creator_form"):
+        col1, col2 = st.columns(2)
         
-        if st.session_state.data_loaded:
-            st.info(f"📊 Data loaded: {len(st.session_state.trade_data.get('MES', pd.DataFrame()))} MES trades, {len(st.session_state.trade_data.get('MNQ', pd.DataFrame()))} MNQ trades")
-            
-            if st.button("💾 Download Generated Data", use_container_width=True):
-                st.write("Download CSVs:")
-                for instrument in ['MES', 'MNQ']:
-                    if instrument in st.session_state.market_data:
-                        csv_market = st.session_state.market_data[instrument].to_csv(index=False)
-                        st.download_button(
-                            f"📥 {instrument}-market.csv",
-                            csv_market,
-                            f"{instrument}-2024-2025.csv",
-                            "text/csv",
-                            key=f"download_market_{instrument}"
-                        )
-                    
-                    if instrument in st.session_state.trade_data:
-                        csv_trades = st.session_state.trade_data[instrument].to_csv(index=False)
-                        st.download_button(
-                            f"📥 {instrument}-trades.csv",
-                            csv_trades,
-                            f"{instrument}-2024-2025-trades.csv",
-                            "text/csv",
-                            key=f"download_trades_{instrument}"
-                        )
-    
-    else:
-        st.write("Upload market and trade CSV files:")
+        with col1:
+            machine_name = st.text_input("Machine Name", placeholder="e.g., Live Trading $100k (15min)")
+            starting_capital = st.number_input("Starting Capital ($)", min_value=10000, max_value=10000000, value=50000, step=5000)
+            timeframe = st.selectbox("Timeframe", options=['5min', '15min', '30min', '1hr', '4hr', 'daily'], index=1)
         
-        with st.expander("📥 Download CSV Templates", expanded=False):
-            st.write("Download these templates to see the exact format required:")
-            
-            mes_market_template = pd.DataFrame({
-                'timestamp': ['2024-07-01 09:30:00', '2024-07-01 09:45:00', '2024-07-01 10:00:00'],
-                'open': [5500.25, 5502.50, 5505.00],
-                'high': [5503.75, 5506.25, 5507.50],
-                'low': [5499.50, 5501.00, 5503.75],
-                'close': [5502.50, 5505.00, 5506.25],
-                'volume': [1250, 1180, 1320],
-                'instrument': ['MES', 'MES', 'MES']
-            })
-            
-            mnq_market_template = pd.DataFrame({
-                'timestamp': ['2024-07-01 09:30:00', '2024-07-01 09:45:00', '2024-07-01 10:00:00'],
-                'open': [19500.50, 19510.25, 19520.00],
-                'high': [19515.75, 19525.50, 19535.25],
-                'low': [19495.00, 19505.75, 19515.50],
-                'close': [19510.25, 19520.00, 19530.75],
-                'volume': [2150, 2080, 2220],
-                'instrument': ['MNQ', 'MNQ', 'MNQ']
-            })
-            
-            mes_trades_template = pd.DataFrame({
-                'trade_id': [1, 2],
-                'instrument': ['MES', 'MES'],
-                'direction': ['LONG', 'SHORT'],
-                'entry_time': ['2024-07-01 10:00:00', '2024-07-01 14:30:00'],
-                'exit_time': ['2024-07-01 11:15:00', '2024-07-01 15:45:00'],
-                'entry_price': [5500.00, 5520.00],
-                'exit_price': [5515.00, 5510.00],
-                'contracts': [2, 2],
-                'pnl': [150.00, 100.00],
-                'initial_risk': [50.00, 50.00],
-                'r_multiple': [3.0, 2.0],
-                'holding_minutes': [75, 75],
-                'entry_hour': [10, 14],
-                'exit_hour': [11, 15],
-                'outcome': ['Win', 'Win'],
-                'stop_price': [5495.00, 5525.00]
-            })
-            
-            mnq_trades_template = pd.DataFrame({
-                'trade_id': [1, 2],
-                'instrument': ['MNQ', 'MNQ'],
-                'direction': ['LONG', 'SHORT'],
-                'entry_time': ['2024-07-01 10:30:00', '2024-07-01 13:00:00'],
-                'exit_time': ['2024-07-01 12:00:00', '2024-07-01 14:15:00'],
-                'entry_price': [19500.00, 19550.00],
-                'exit_price': [19550.00, 19525.00],
-                'contracts': [1, 1],
-                'pnl': [100.00, 50.00],
-                'initial_risk': [50.00, 50.00],
-                'r_multiple': [2.0, 1.0],
-                'holding_minutes': [90, 75],
-                'entry_hour': [10, 13],
-                'exit_hour': [12, 14],
-                'outcome': ['Win', 'Win'],
-                'stop_price': [19450.00, 19575.00]
-            })
-            
-            col1, col2 = st.columns(2)
-            with col1:
-                st.download_button(
-                    "📄 MES Market Template",
-                    mes_market_template.to_csv(index=False),
-                    "MES_market_template.csv",
-                    "text/csv",
-                    key="template_mes_market"
-                )
-                st.download_button(
-                    "📄 MES Trades Template",
-                    mes_trades_template.to_csv(index=False),
-                    "MES_trades_template.csv",
-                    "text/csv",
-                    key="template_mes_trades"
-                )
-            with col2:
-                st.download_button(
-                    "📄 MNQ Market Template",
-                    mnq_market_template.to_csv(index=False),
-                    "MNQ_market_template.csv",
-                    "text/csv",
-                    key="template_mnq_market"
-                )
-                st.download_button(
-                    "📄 MNQ Trades Template",
-                    mnq_trades_template.to_csv(index=False),
-                    "MNQ_trades_template.csv",
-                    "text/csv",
-                    key="template_mnq_trades"
-                )
-            
-            st.caption("💡 Tip: Download all 4 templates, replace the sample data with your real trading data, then upload them back.")
+        with col2:
+            status = st.selectbox("Status", options=['live', 'simulated'], format_func=lambda x: f"🟢 Live" if x == 'live' else "⚪ Simulated")
+            data_source = st.radio("Trade Data Source:", ["Generate Mock Data", "Upload CSV Files"])
         
-        st.divider()
+        col_btn1, col_btn2 = st.columns(2)
+        create_btn = col_btn1.form_submit_button("✅ Create Machine", use_container_width=True, type="primary")
+        cancel_btn = col_btn2.form_submit_button("❌ Cancel", use_container_width=True)
         
-        mes_market_file = st.file_uploader("MES Market Data", type=['csv'], key="mes_market")
-        mnq_market_file = st.file_uploader("MNQ Market Data", type=['csv'], key="mnq_market")
-        mes_trades_file = st.file_uploader("MES Trades Data", type=['csv'], key="mes_trades")
-        mnq_trades_file = st.file_uploader("MNQ Trades Data", type=['csv'], key="mnq_trades")
-        
-        if st.button("📤 Load Uploaded Data", use_container_width=True):
-            if all([mes_market_file, mnq_market_file, mes_trades_file, mnq_trades_file]):
-                st.session_state.market_data = {
-                    'MES': pd.read_csv(mes_market_file),
-                    'MNQ': pd.read_csv(mnq_market_file)
-                }
-                st.session_state.trade_data = {
-                    'MES': pd.read_csv(mes_trades_file),
-                    'MNQ': pd.read_csv(mnq_trades_file)
-                }
-                st.session_state.data_loaded = True
+        if create_btn:
+            if machine_name:
+                machine_id = str(uuid_lib.uuid4())
                 
-                combined_trades = pd.concat([st.session_state.trade_data['MES'], st.session_state.trade_data['MNQ']])
-                baseline = create_baseline_scenario(combined_trades, st.session_state.starting_capital)
-                st.session_state.scenarios = [baseline]
-                
-                st.success("✅ Data loaded successfully!")
-                st.rerun()
+                with st.spinner("Creating machine and generating data..."):
+                    try:
+                        create_machine_db(machine_id, machine_name, starting_capital, timeframe, status)
+                        
+                        if data_source == "Generate Mock Data":
+                            # Step 1: Generate or load market data for this timeframe
+                            mes_market_df = get_market_data('MES', timeframe)
+                            if mes_market_df.empty:
+                                mes_market_df = generate_market_data('MES', timeframe)
+                                bulk_insert_market_data(mes_market_df)
+                            
+                            mnq_market_df = get_market_data('MNQ', timeframe)
+                            if mnq_market_df.empty:
+                                mnq_market_df = generate_market_data('MNQ', timeframe)
+                                bulk_insert_market_data(mnq_market_df)
+                            
+                            # Step 2: Generate trades using the market data
+                            mes_trades_df = generate_trade_data('MES', mes_market_df, starting_capital)
+                            mnq_trades_df = generate_trade_data('MNQ', mnq_market_df, starting_capital)
+                            
+                            # Step 3: Insert trades into database
+                            bulk_insert_trades(machine_id, mes_trades_df)
+                            bulk_insert_trades(machine_id, mnq_trades_df)
+                        
+                        st.session_state.show_machine_creator = False
+                        st.session_state.active_machine_id = machine_id
+                        st.success(f"✅ Machine '{machine_name}' created successfully!")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error creating machine: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
             else:
-                st.error("⚠️ Please upload all 4 CSV files")
+                st.error("Please provide a machine name")
+        
+        if cancel_btn:
+            st.session_state.show_machine_creator = False
+            st.rerun()
     
-    st.divider()
-    st.subheader("🎯 Scenario Management")
+    st.stop()
+
+active_machine = None
+active_scenarios = []
+
+if st.session_state.active_machine_id:
+    from database import get_machine_by_id
+    active_machine = get_machine_by_id(st.session_state.active_machine_id)
     
-    num_scenarios = len(st.session_state.scenarios)
-    st.metric("Active Scenarios", f"{num_scenarios}/{MAX_SCENARIOS}")
+    if active_machine:
+        st.info(f"**Active Machine**: {'🟢' if active_machine['status'] == 'live' else '⚪'} {active_machine['name']} | ${active_machine['starting_capital']:,.0f} | {active_machine['timeframe']}")
+        
+        active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
+        
+        if not active_scenarios:
+            trades_df = get_trades_for_machine(st.session_state.active_machine_id)
+            if not trades_df.empty:
+                from scenario_engine import create_baseline_scenario
+                from database import save_scenario
+                
+                baseline = create_baseline_scenario(trades_df, active_machine['starting_capital'])
+                scenario_id = save_scenario(
+                    st.session_state.active_machine_id,
+                    baseline['name'],
+                    True,
+                    baseline['parameters'],
+                    baseline.get('metrics'),
+                    baseline.get('modified_trades')
+                )
+                active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
+    else:
+        st.warning("Selected machine not found in database")
+        st.session_state.active_machine_id = None
+
+with st.sidebar:
+    st.header("🤖 Machine Management")
     
-    if num_scenarios > 0:
-        scenario_to_delete = st.selectbox(
-            "Delete Scenario:",
-            [s['name'] for s in st.session_state.scenarios if not s.get('is_baseline', False)],
-            key="delete_scenario_select"
+    from database import get_all_machines, create_machine_db, delete_machine_db, bulk_insert_trades, get_trades_for_machine
+    from database import init_database, get_market_data, check_market_data_exists, bulk_insert_market_data
+    
+    init_database()
+    
+    db_machines = get_all_machines()
+    
+    if db_machines:
+        machine_options = {m['id']: f"{'🟢' if m['status'] == 'live' else '⚪'} {m['name']}" for m in db_machines}
+        
+        selected_machine_id = st.selectbox(
+            "Select Machine:",
+            options=list(machine_options.keys()),
+            format_func=lambda x: machine_options[x],
+            index=list(machine_options.keys()).index(st.session_state.active_machine_id) if st.session_state.active_machine_id in machine_options else 0
         )
         
-        if scenario_to_delete and st.button("🗑️ Delete Selected Scenario", use_container_width=True):
-            st.session_state.scenarios = [s for s in st.session_state.scenarios if s['name'] != scenario_to_delete]
-            st.success(f"Deleted: {scenario_to_delete}")
+        if selected_machine_id != st.session_state.active_machine_id:
+            st.session_state.active_machine_id = selected_machine_id
             st.rerun()
+        
+        st.info(f"**Machines**: {len(db_machines)} total")
+    else:
+        st.warning("No machines created yet. Create your first machine below!")
+        st.session_state.active_machine_id = None
+    
+    st.divider()
+    
+    if st.button("➕ Create New Machine", use_container_width=True):
+        st.session_state.show_machine_creator = True
+        st.rerun()
+    
+    if st.session_state.active_machine_id:
+        if st.button("🗑️ Delete Selected Machine", use_container_width=True, type="secondary"):
+            delete_machine_db(st.session_state.active_machine_id)
+            st.session_state.active_machine_id = None
+            st.success("Machine deleted!")
+            st.rerun()
+    
+    st.divider()
+    st.subheader("📁 Initialize Market Data")
+    
+    if st.button("🎲 Generate Market Data (All Timeframes)", use_container_width=True):
+        with st.spinner("Generating market data for all timeframes..."):
+            from data_generator import generate_market_data
+            
+            timeframes = ['5min', '15min', '30min', '1hr', '4hr', 'daily']
+            total_inserted = 0
+            
+            for timeframe in timeframes:
+                for instrument in ['MES', 'MNQ']:
+                    if not check_market_data_exists(instrument, timeframe):
+                        market_df = generate_market_data(instrument, timeframe)
+                        inserted = bulk_insert_market_data(market_df)
+                        total_inserted += inserted
+            
+            st.success(f"✅ Generated {total_inserted} market data rows across all timeframes!")
+            st.rerun()
+    
+    
+    st.caption("💡 Market data is automatically generated for all timeframes and shared across machines")
 
-if not st.session_state.data_loaded:
-    st.info("👈 Please generate mock data or upload CSV files to begin analysis")
+if not st.session_state.active_machine_id or not active_machine:
+    st.info("👈 Please create a machine to begin analysis")
     st.stop()
 
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -269,10 +234,19 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 with tab1:
     st.header("Scenario Comparison Matrix")
     
-    if len(st.session_state.scenarios) == 0:
-        st.warning("No scenarios available. Create scenarios in the 'Create Scenario' tab.")
+    if len(active_scenarios) == 0:
+        st.warning("No scenarios available for this machine. Create scenarios in the 'Create Scenario' tab.")
     else:
-        comparison_df = get_comparison_matrix(st.session_state.scenarios)
+        scenarios_for_comparison = [
+            {
+                'name': s['name'],
+                'is_baseline': s['is_baseline'],
+                'parameters': s['parameters'],
+                'metrics': s['metrics'],
+                'modified_trades': s['modified_trades']
+            } for s in active_scenarios
+        ]
+        comparison_df = get_comparison_matrix(scenarios_for_comparison)
         
         st.subheader("Key Metrics Comparison")
         
@@ -320,13 +294,16 @@ with tab1:
 with tab2:
     st.header("Create What-If Scenario")
     
-    if len(st.session_state.scenarios) >= MAX_SCENARIOS:
-        st.error(f"⚠️ Maximum {MAX_SCENARIOS} scenarios reached. Please delete a scenario to create a new one.")
+    baseline_count = len([s for s in active_scenarios if s['is_baseline']])
+    additional_scenarios_count = len([s for s in active_scenarios if not s['is_baseline']])
+    
+    if additional_scenarios_count >= MAX_SCENARIOS:
+        st.error(f"⚠️ Maximum {MAX_SCENARIOS} additional scenarios reached for this machine. Please delete a scenario to create a new one.")
     else:
-        st.info(f"📊 Scenarios: {len(st.session_state.scenarios)}/{MAX_SCENARIOS}")
+        st.info(f"📊 Scenarios: {baseline_count} baseline + {additional_scenarios_count}/{MAX_SCENARIOS} additional")
         
         with st.form("scenario_form"):
-            scenario_name = st.text_input("Scenario Name", value=f"Scenario {len(st.session_state.scenarios)}")
+            scenario_name = st.text_input("Scenario Name", value=f"Scenario {len(active_scenarios)}")
             
             st.subheader("What-If Parameters")
             
@@ -383,7 +360,7 @@ with tab2:
                     step=0.1,
                     help="Multiply your capital to test larger/smaller position sizes. 2.0 = double capital & contracts, 0.5 = half"
                 )
-                st.caption(f"💡 Base Capital: ${st.session_state.starting_capital:,.0f} (will be multiplied by your value above)")
+                st.caption(f"💡 Base Capital: ${active_machine['starting_capital']:,.0f} (will be multiplied by your value above)")
             
             with col4:
                 mes_split_pct = st.slider("MES / MNQ Split % (MES)", 0, 100, 50, 10)
@@ -408,34 +385,46 @@ with tab2:
                     'max_concurrent_positions': max_concurrent_positions if use_position_limit else None
                 }
                 
-                combined_trades = pd.concat([st.session_state.trade_data['MES'], st.session_state.trade_data['MNQ']])
-                combined_market = pd.concat([st.session_state.market_data['MES'], st.session_state.market_data['MNQ']])
+                trades_df = get_trades_for_machine(st.session_state.active_machine_id)
+                
+                mes_market_df = get_market_data('MES', active_machine['timeframe'])
+                mnq_market_df = get_market_data('MNQ', active_machine['timeframe'])
+                combined_market = pd.concat([mes_market_df, mnq_market_df])
                 
                 new_scenario = create_scenario(
                     scenario_name,
                     params,
-                    combined_trades,
+                    trades_df,
                     combined_market,
-                    st.session_state.starting_capital
+                    active_machine['starting_capital']
                 )
                 
-                st.session_state.scenarios.append(new_scenario)
+                from database import save_scenario
+                scenario_id = save_scenario(
+                    st.session_state.active_machine_id,
+                    new_scenario['name'],
+                    False,
+                    new_scenario['parameters'],
+                    new_scenario.get('metrics'),
+                    new_scenario.get('modified_trades')
+                )
+                
                 st.success(f"✅ Created scenario: {scenario_name}")
                 st.rerun()
 
 with tab3:
     st.header("Equity Curves")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         selected_scenario = st.selectbox(
             "Select Scenario:",
-            [s['name'] for s in st.session_state.scenarios],
+            [s['name'] for s in active_scenarios],
             key="equity_scenario"
         )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
         if scenario:
             col1, col2, col3, col4 = st.columns(4)
@@ -448,36 +437,40 @@ with tab3:
             with col4:
                 st.metric("Recovery Factor", f"{scenario['metrics']['recovery_factor']:.2f}")
             
-            fig = create_equity_curve(scenario['trades'], st.session_state.starting_capital, f"Equity Curve - {selected_scenario}")
+            scenario_trades = pd.DataFrame(scenario['modified_trades']) if scenario['modified_trades'] else pd.DataFrame()
+            fig = create_equity_curve(scenario_trades, active_machine['starting_capital'], f"Equity Curve - {selected_scenario}")
             st.plotly_chart(fig, use_container_width=True)
 
 with tab4:
     st.header("Performance Heatmaps")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         selected_scenario = st.selectbox(
             "Select Scenario:",
-            [s['name'] for s in st.session_state.scenarios],
+            [s['name'] for s in active_scenarios],
             key="heatmap_scenario"
         )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
-        if scenario and not scenario['trades'].empty:
-            st.subheader("Weekly P&L Heatmap")
-            fig_weekly = create_weekly_pnl_heatmap(scenario['trades'])
-            st.plotly_chart(fig_weekly, use_container_width=True)
+        if scenario:
+            trades_df = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
             
-            st.subheader("Monthly Returns Grid")
-            fig_monthly = create_monthly_returns_grid(scenario['trades'])
-            st.plotly_chart(fig_monthly, use_container_width=True)
+            if not trades_df.empty:
+                st.subheader("Weekly P&L Heatmap")
+                fig_weekly = create_weekly_pnl_heatmap(trades_df)
+                st.plotly_chart(fig_weekly, use_container_width=True)
+                
+                st.subheader("Monthly Returns Grid")
+                fig_monthly = create_monthly_returns_grid(trades_df)
+                st.plotly_chart(fig_monthly, use_container_width=True)
 
 with tab5:
     st.header("Price Charts with Trades")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         col1, col2 = st.columns(2)
@@ -488,17 +481,20 @@ with tab5:
         with col2:
             selected_scenario = st.selectbox(
                 "Scenario:",
-                [s['name'] for s in st.session_state.scenarios],
+                [s['name'] for s in active_scenarios],
                 key="chart_scenario"
             )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
-        if scenario and selected_instrument in st.session_state.market_data:
-            market = st.session_state.market_data[selected_instrument]
-            trades = scenario['trades'][scenario['trades']['instrument'] == selected_instrument]
+        if scenario:
+            all_trades = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
+            trades = all_trades[all_trades['instrument'] == selected_instrument] if not all_trades.empty else pd.DataFrame()
             
-            market['timestamp'] = pd.to_datetime(market['timestamp'])
+            market = get_market_data(selected_instrument, active_machine['timeframe'])
+            
+            if not market.empty:
+                market['timestamp'] = pd.to_datetime(market['timestamp'])
             date_range = st.date_input(
                 "Date Range:",
                 value=(market['timestamp'].min().date(), market['timestamp'].max().date()),
@@ -528,116 +524,125 @@ with tab5:
 with tab6:
     st.header("Time-of-Day Analysis")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         selected_scenario = st.selectbox(
             "Select Scenario:",
-            [s['name'] for s in st.session_state.scenarios],
+            [s['name'] for s in active_scenarios],
             key="time_scenario"
         )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
-        if scenario and not scenario['trades'].empty:
-            fig_time = create_time_of_day_heatmap(scenario['trades'])
-            st.plotly_chart(fig_time, use_container_width=True)
+        if scenario:
+            trades_df = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
             
-            st.subheader("Hourly Performance Table")
-            hour_perf = get_time_of_day_performance(scenario['trades'])
-            if not hour_perf.empty:
-                st.dataframe(hour_perf, use_container_width=True, hide_index=True)
+            if not trades_df.empty:
+                fig_time = create_time_of_day_heatmap(trades_df)
+                st.plotly_chart(fig_time, use_container_width=True)
+                
+                st.subheader("Hourly Performance Table")
+                hour_perf = get_time_of_day_performance(trades_df)
+                if not hour_perf.empty:
+                    st.dataframe(hour_perf, use_container_width=True, hide_index=True)
 
 with tab7:
     st.header("Returns & R-Multiple Distribution")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         selected_scenario = st.selectbox(
             "Select Scenario:",
-            [s['name'] for s in st.session_state.scenarios],
+            [s['name'] for s in active_scenarios],
             key="dist_scenario"
         )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
-        if scenario and not scenario['trades'].empty:
-            st.subheader("Dollar Returns Distribution")
-            fig_returns, return_stats = create_returns_distribution(scenario['trades'], f"Returns Distribution - {selected_scenario}")
-            st.plotly_chart(fig_returns, use_container_width=True)
+        if scenario:
+            trades_df = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
             
-            if return_stats:
-                st.subheader("Statistical Analysis")
-                col1, col2, col3, col4, col5 = st.columns(5)
-                with col1:
-                    st.metric("Mean", f"${return_stats['mean']:.2f}")
-                with col2:
-                    st.metric("Median", f"${return_stats['median']:.2f}")
-                with col3:
-                    st.metric("Std Dev", f"${return_stats['std']:.2f}")
-                with col4:
-                    st.metric("Skewness", f"{return_stats['skewness']:.3f}")
-                with col5:
-                    st.metric("Kurtosis", f"{return_stats['kurtosis']:.3f}")
+            if not trades_df.empty:
+                st.subheader("Dollar Returns Distribution")
+                fig_returns, return_stats = create_returns_distribution(trades_df, f"Returns Distribution - {selected_scenario}")
+                st.plotly_chart(fig_returns, use_container_width=True)
                 
-                col6, col7, col8 = st.columns(3)
-                with col6:
-                    st.metric("Min", f"${return_stats['min']:.2f}")
-                with col7:
-                    st.metric("Max", f"${return_stats['max']:.2f}")
-                with col8:
-                    st.metric("Total Trades", f"{return_stats['count']}")
-            
-            st.divider()
-            st.subheader("R-Multiple Distribution")
-            fig_r = create_r_multiple_histogram(scenario['trades'])
-            st.plotly_chart(fig_r, use_container_width=True)
-            
-            if 'r_multiple' in scenario['trades'].columns:
-                r_stats = scenario['trades']['r_multiple'].describe()
+                if return_stats:
+                    st.subheader("Statistical Analysis")
+                    col1, col2, col3, col4, col5 = st.columns(5)
+                    with col1:
+                        st.metric("Mean", f"${return_stats['mean']:.2f}")
+                    with col2:
+                        st.metric("Median", f"${return_stats['median']:.2f}")
+                    with col3:
+                        st.metric("Std Dev", f"${return_stats['std']:.2f}")
+                    with col4:
+                        st.metric("Skewness", f"{return_stats['skewness']:.3f}")
+                    with col5:
+                        st.metric("Kurtosis", f"{return_stats['kurtosis']:.3f}")
+                    
+                    col6, col7, col8 = st.columns(3)
+                    with col6:
+                        st.metric("Min", f"${return_stats['min']:.2f}")
+                    with col7:
+                        st.metric("Max", f"${return_stats['max']:.2f}")
+                    with col8:
+                        st.metric("Total Trades", f"{return_stats['count']}")
                 
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Mean R", f"{r_stats['mean']:.2f}R")
-                with col2:
-                    st.metric("Median R", f"{r_stats['50%']:.2f}R")
-                with col3:
-                    st.metric("Max R", f"{r_stats['max']:.2f}R")
-                with col4:
-                    st.metric("Min R", f"{r_stats['min']:.2f}R")
+                st.divider()
+                st.subheader("R-Multiple Distribution")
+                fig_r = create_r_multiple_histogram(trades_df)
+                st.plotly_chart(fig_r, use_container_width=True)
+                
+                if 'r_multiple' in trades_df.columns:
+                    r_stats = trades_df['r_multiple'].describe()
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Mean R", f"{r_stats['mean']:.2f}R")
+                    with col2:
+                        st.metric("Median R", f"{r_stats['50%']:.2f}R")
+                    with col3:
+                        st.metric("Max R", f"{r_stats['max']:.2f}R")
+                    with col4:
+                        st.metric("Min R", f"{r_stats['min']:.2f}R")
 
 with tab8:
     st.header("Trade Details")
     
-    if len(st.session_state.scenarios) == 0:
+    if len(active_scenarios) == 0:
         st.warning("No scenarios available.")
     else:
         selected_scenario = st.selectbox(
             "Select Scenario:",
-            [s['name'] for s in st.session_state.scenarios],
+            [s['name'] for s in active_scenarios],
             key="detail_scenario"
         )
         
-        scenario = next((s for s in st.session_state.scenarios if s['name'] == selected_scenario), None)
+        scenario = next((s for s in active_scenarios if s['name'] == selected_scenario), None)
         
-        if scenario and not scenario['trades'].empty:
-            st.subheader("All Trades")
+        if scenario:
+            trades_df = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
             
-            display_trades = scenario['trades'].copy()
-            display_trades['entry_time'] = pd.to_datetime(display_trades['entry_time']).dt.strftime('%Y-%m-%d %H:%M')
-            display_trades['exit_time'] = pd.to_datetime(display_trades['exit_time']).dt.strftime('%Y-%m-%d %H:%M')
-            
-            st.dataframe(display_trades, use_container_width=True, hide_index=True)
-            
-            csv_trades = display_trades.to_csv(index=False)
-            st.download_button(
-                "📥 Download Trades CSV",
-                csv_trades,
-                f"{selected_scenario}_trades.csv",
-                "text/csv"
-            )
+            if not trades_df.empty:
+                st.subheader("All Trades")
+                
+                display_trades = trades_df.copy()
+                display_trades['entry_time'] = pd.to_datetime(display_trades['entry_time']).dt.strftime('%Y-%m-%d %H:%M')
+                display_trades['exit_time'] = pd.to_datetime(display_trades['exit_time']).dt.strftime('%Y-%m-%d %H:%M')
+                
+                st.dataframe(display_trades, use_container_width=True, hide_index=True)
+                
+                csv_trades = display_trades.to_csv(index=False)
+                st.download_button(
+                    "📥 Download Trades CSV",
+                    csv_trades,
+                    f"{selected_scenario}_trades.csv",
+                    "text/csv"
+                )
 
 st.sidebar.divider()
-st.sidebar.caption("Trading What-If Analysis v1.0")
-st.sidebar.caption("MES & MNQ Futures | 15-Min Candles")
+st.sidebar.caption("Trading What-If Analysis v2.0")
+st.sidebar.caption("Machine-Based Architecture | Multi-Timeframe Support")
