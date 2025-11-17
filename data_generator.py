@@ -3,9 +3,9 @@ import numpy as np
 from datetime import datetime, timedelta
 import random
 
-def generate_market_data(instrument, start_date, end_date, base_price, volatility=0.02):
+def generate_market_data(instrument, start_date, end_date, base_price, volatility=0.02, timeframe='15min'):
     """
-    Generate 15-minute OHLCV candlestick data for futures instruments
+    Generate OHLCV candlestick data for futures instruments with configurable timeframe
     
     Parameters:
     - instrument: 'MES' or 'MNQ'
@@ -13,7 +13,15 @@ def generate_market_data(instrument, start_date, end_date, base_price, volatilit
     - end_date: datetime object
     - base_price: starting price for the instrument
     - volatility: daily volatility as decimal
+    - timeframe: '5min', '15min', '30min', '1hr', '4hr', 'daily'
     """
+    
+    timeframe_minutes = {
+        '1min': 1, '5min': 5, '15min': 15, '30min': 30,
+        '1hr': 60, '2hr': 120, '4hr': 240, 'daily': 390
+    }
+    
+    interval_minutes = timeframe_minutes.get(timeframe, 15)
     
     timestamps = []
     current = start_date
@@ -26,7 +34,7 @@ def generate_market_data(instrument, start_date, end_date, base_price, volatilit
             time = trading_start
             while time <= trading_end:
                 timestamps.append(time)
-                time += timedelta(minutes=15)
+                time += timedelta(minutes=interval_minutes)
         
         current += timedelta(days=1)
     
@@ -54,7 +62,8 @@ def generate_market_data(instrument, start_date, end_date, base_price, volatilit
             'high': round(high_price, 2),
             'low': round(low_price, 2),
             'close': round(close_price, 2),
-            'volume': volume
+            'volume': volume,
+            'timeframe': timeframe
         })
     
     df = pd.DataFrame(data)
@@ -83,6 +92,8 @@ def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), star
     
     market_df['date'] = pd.to_datetime(market_df['timestamp']).dt.date
     unique_dates = market_df['date'].unique()
+    
+    timeframe = market_df['timeframe'].iloc[0] if 'timeframe' in market_df.columns and len(market_df) > 0 else '15min'
     
     trades = []
     trade_id = 1
@@ -153,7 +164,8 @@ def generate_trade_data(instrument, market_df, trades_per_day_range=(2, 3), star
                 'entry_hour': entry_hour,
                 'exit_hour': exit_hour,
                 'outcome': outcome,
-                'stop_price': round(stop_price, 2)
+                'stop_price': round(stop_price, 2),
+                'timeframe': timeframe
             })
             
             trade_id += 1

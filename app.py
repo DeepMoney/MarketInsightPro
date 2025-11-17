@@ -4,7 +4,7 @@ import numpy as np
 from datetime import datetime
 import io
 
-from data_generator import create_mock_data
+from data_generator import create_mock_data, generate_market_data, generate_trade_data
 from analytics_engine import (
     calculate_all_metrics, get_equity_curve, get_time_of_day_performance,
     get_r_multiple_distribution, get_weekly_pnl_heatmap_data, get_monthly_returns
@@ -17,6 +17,12 @@ from visualizations import (
     create_monthly_returns_grid, create_time_of_day_heatmap, create_r_multiple_histogram,
     create_comparison_bar_chart, create_returns_distribution
 )
+from machine_manager import (
+    create_machine, get_machine_display_name, get_machine_color, validate_machine_name,
+    delete_machine, get_active_machine, add_scenario_to_machine, get_all_scenarios_for_machine,
+    get_machine_scenarios_count
+)
+from datetime import datetime
 
 MAX_SCENARIOS = 10
 
@@ -25,16 +31,16 @@ st.set_page_config(page_title="Trading What-If Analysis", layout="wide", initial
 st.title("📊 Trading Portfolio What-If Analysis")
 st.markdown("**Micro S&P 500 (MES) & Micro Nasdaq (MNQ) Futures Analysis**")
 
-if 'scenarios' not in st.session_state:
-    st.session_state.scenarios = []
 if 'market_data' not in st.session_state:
     st.session_state.market_data = {}
-if 'trade_data' not in st.session_state:
-    st.session_state.trade_data = {}
+if 'machines' not in st.session_state:
+    st.session_state.machines = {}
+if 'active_machine_id' not in st.session_state:
+    st.session_state.active_machine_id = None
 if 'data_loaded' not in st.session_state:
     st.session_state.data_loaded = False
-if 'starting_capital' not in st.session_state:
-    st.session_state.starting_capital = 50000
+if 'show_machine_creator' not in st.session_state:
+    st.session_state.show_machine_creator = False
 
 with st.sidebar:
     st.header("⚙️ Configuration")
