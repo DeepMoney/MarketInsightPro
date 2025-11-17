@@ -20,7 +20,11 @@ The system employs a hierarchical architecture with Market Data feeding into mul
 
 ### UI/UX Decisions
 
-New UI components include a machine creator modal, a sidebar for selecting the active machine, and machine management features. All tabs (Comparison Matrix, Create Scenario, Equity Curves, Heatmaps, Charts, Time Analysis, Distribution, Trade Details) are machine-aware. The UI also incorporates a capital multiplier (0.1x to 10.0x) and a max concurrent positions parameter for advanced scenario testing. Slider UI elements are always visible, with checkboxes controlling their application, improving user experience.
+New UI components include a machine creator modal, a sidebar for selecting the active machine, and machine management features. The sidebar includes Create, Edit, and Delete buttons for full CRUD operations on machines. All tabs (Comparison Matrix, Create Scenario, Equity Curves, Heatmaps, Charts, Time Analysis, Distribution, Trade Details) are machine-aware. The UI also incorporates a capital multiplier (0.1x to 10.0x) and a max concurrent positions parameter for advanced scenario testing. Slider UI elements are always visible, with checkboxes controlling their application, improving user experience.
+
+**Machine Editing**: Users can edit existing machines via the sidebar Edit button, updating name, starting capital, timeframe, and status. A warning alerts users that changing timeframe or capital affects scenario calculations.
+
+**CSV Trade Import**: When creating a machine, users can upload CSV files containing real trade data instead of generating mock data. The system validates required columns (instrument, direction, entry_time, exit_time, entry_price, exit_price, pnl) and auto-calculates optional fields like holding_minutes, r_multiple, and outcome classification.
 
 ### Technical Implementations
 
@@ -39,6 +43,8 @@ The core data processing relies on pandas DataFrames for market (OHLCV) and trad
 ### Data Storage
 
 - **PostgreSQL**: Integrated for persistent storage of `machines`, `trades`, `market_data`, `scenarios`, and `scenario_results` tables. Configured via `DATABASE_URL` environment variable.
+  - **CRUD Operations**: Full Create, Read, Update, Delete support for machines via `create_machine_db()`, `get_machine_by_id()`, `update_machine_db()`, and `delete_machine_db()` functions.
+  - **CSV Import**: `bulk_insert_trades()` supports importing trade data from CSV files with automatic field derivation.
 
 ### External Services
 
