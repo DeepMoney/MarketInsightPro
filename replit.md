@@ -16,11 +16,13 @@ The application uses Streamlit for its frontend, orchestrating data generation, 
 
 ### System Design Choices
 
-The system employs a hierarchical architecture with Market Data feeding into multiple "Machines" (representing trading accounts/strategies), each with its own "Scenarios." Machines are color-coded for live (green) or simulated (gray) status. Full PostgreSQL integration provides persistent storage for machines, trades, market data, scenarios, and scenario results, with proper indexing for efficient data retrieval. Multi-timeframe support allows machines to operate on various timeframes (5min, 15min, 30min, 1hr, 4hr, daily), with market data generated and shared across all timeframes.
+The system employs a **market-first hierarchical architecture**: **Markets (MES/MNQ)** → **Machines (trading accounts/strategies)** → **Scenarios (what-if analyses)**. The landing page presents market selection cards for MES (Micro S&P 500) and MNQ (Micro Nasdaq), each displaying machine counts and statistics. Selecting a market filters all machines and operations to that specific instrument, providing clear organization for 50+ machines across different markets. Machines are color-coded for live (green) or simulated (gray) status. Full PostgreSQL integration provides persistent storage for machines, trades, market data, scenarios, and scenario results, with proper indexing for efficient data retrieval. Multi-timeframe support allows machines to operate on various timeframes (5min, 15min, 30min, 1hr, 4hr, daily), with market data generated and shared across all timeframes.
 
 ### UI/UX Decisions
 
-New UI components include a machine creator modal, a sidebar for selecting the active machine, and machine management features. The sidebar includes Create, Edit, and Delete buttons for full CRUD operations on machines. All tabs (Comparison Matrix, Create Scenario, Equity Curves, Heatmaps, Charts, Time Analysis, Distribution, Trade Details) are machine-aware. The UI also incorporates a capital multiplier (0.1x to 10.0x) and a max concurrent positions parameter for advanced scenario testing. Slider UI elements are always visible, with checkboxes controlling their application, improving user experience.
+**Market-First Navigation**: The application opens with a market selection page featuring cards for MES and MNQ, each showing total and live machine counts. Clicking a market card navigates to that market's machine view. A "← Back to Markets" button in the sidebar provides easy navigation back to market selection. This organization cleanly separates machines by instrument, making it easy to manage 50+ machines across different markets.
+
+**Machine Management**: The sidebar includes Create, Edit, and Delete buttons for full CRUD operations on machines. All machines are automatically assigned to the selected market. All tabs (Comparison Matrix, Create Scenario, Equity Curves, Heatmaps, Charts, Time Analysis, Distribution, Trade Details) are machine-aware and market-scoped. The UI also incorporates a capital multiplier (0.1x to 10.0x) and a max concurrent positions parameter for advanced scenario testing. Slider UI elements are always visible, with checkboxes controlling their application, improving user experience.
 
 **Machine Editing**: Users can edit existing machines via the sidebar Edit button, updating name, starting capital, timeframe, and status. A warning alerts users that changing timeframe or capital affects scenario calculations.
 
@@ -44,6 +46,8 @@ The core data processing relies on pandas DataFrames for market (OHLCV) and trad
 
 - **PostgreSQL**: Integrated for persistent storage of `machines`, `trades`, `market_data`, `scenarios`, and `scenario_results` tables. Configured via `DATABASE_URL` environment variable.
   - **CRUD Operations**: Full Create, Read, Update, Delete support for machines via `create_machine_db()`, `get_machine_by_id()`, `update_machine_db()`, and `delete_machine_db()` functions.
+  - **Market Filtering**: `get_all_machines(instrument=None)` supports filtering machines by market/instrument (MES, MNQ).
+  - **Schema Migrations**: Idempotent migration system automatically adds new columns to existing databases on startup.
   - **CSV Import**: `bulk_insert_trades()` supports importing trade data from CSV files with automatic field derivation.
 
 ### External Services
