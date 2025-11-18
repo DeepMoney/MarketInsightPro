@@ -669,11 +669,11 @@ def seed_contract_specs():
     cur = conn.cursor()
     
     try:
-        # Real contract specs (as of 2024-2025)
+        # Real contract specs (verified CME + Interactive Brokers 2024-2025)
         contract_specs = [
-            # US Index Futures (Micro contracts)
-            ('MES', 1300.00, 5.00, 0.25, 5.0, 'USD', 'Micro E-mini S&P 500 futures contract'),
-            ('MNQ', 1650.00, 2.00, 0.25, 2.0, 'USD', 'Micro E-mini Nasdaq-100 futures contract'),
+            # US Index Futures (Micro contracts) - Using overnight margin requirements
+            ('MES', 2450.00, 5.00, 0.25, 5.0, 'USD', 'Micro E-mini S&P 500 - Overnight margin ~$2,450, IB intraday ~$1,251'),
+            ('MNQ', 3395.00, 2.00, 0.25, 2.0, 'USD', 'Micro E-mini Nasdaq-100 - Overnight margin ~$3,395, IB intraday ~$2,100'),
             # Forex (MT5) - example specs (may vary by broker)
             ('EURUSD', 100.00, 10.00, 0.0001, 100000.0, 'USD', 'Euro vs US Dollar standard lot'),
             ('USDJPY', 100.00, 10.00, 0.01, 100000.0, 'USD', 'US Dollar vs Japanese Yen standard lot'),
@@ -871,7 +871,7 @@ def seed_portfolio_0():
         base_date = datetime(2025, 7, 1, 9, 30, 0)  # July 1, 2025 at 9:30 AM
         
         trades = [
-            # MES Long Trade
+            # MES Long Trade (using overnight margin requirements)
             {
                 'machine_id': portfolio_id,
                 'trade_id': 'MES_LONG_001',
@@ -883,7 +883,7 @@ def seed_portfolio_0():
                 'exit_price': 5615.00,
                 'contracts': 1,
                 'pnl': 75.00,  # (5615 - 5600) × $5 × 1
-                'initial_risk': 1300.00
+                'initial_risk': 2450.00  # Updated to correct overnight margin
             },
             # MES Short Trade
             {
@@ -897,7 +897,7 @@ def seed_portfolio_0():
                 'exit_price': 5598.00,
                 'contracts': 1,
                 'pnl': 70.00,  # (5612 - 5598) × $5 × 1
-                'initial_risk': 1300.00
+                'initial_risk': 2450.00  # Updated to correct overnight margin
             },
             # MNQ Long Trade
             {
@@ -911,7 +911,7 @@ def seed_portfolio_0():
                 'exit_price': 19785.00,
                 'contracts': 1,
                 'pnl': 170.00,  # (19785 - 19700) × $2 × 1
-                'initial_risk': 1650.00
+                'initial_risk': 3395.00  # Updated to correct overnight margin
             },
             # MNQ Short Trade
             {
@@ -925,7 +925,7 @@ def seed_portfolio_0():
                 'exit_price': 19680.00,
                 'contracts': 1,
                 'pnl': 160.00,  # (19760 - 19680) × $2 × 1
-                'initial_risk': 1650.00
+                'initial_risk': 3395.00  # Updated to correct overnight margin
             }
         ]
         
