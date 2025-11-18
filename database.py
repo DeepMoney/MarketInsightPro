@@ -220,7 +220,7 @@ def init_database():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS trades (
                 id SERIAL PRIMARY KEY,
-                machine_id UUID NOT NULL REFERENCES machines(id) ON DELETE CASCADE,
+                machine_id UUID NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
                 trade_id VARCHAR(50) NOT NULL,
                 instrument VARCHAR(10) NOT NULL,
                 direction VARCHAR(10) NOT NULL CHECK (direction IN ('Long', 'Short')),
@@ -241,6 +241,7 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(machine_id, trade_id)
             )
+            -- Note: machine_id column name retained for backward compatibility, but now references portfolios
         """)
         
         cur.execute("""
