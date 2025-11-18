@@ -1091,10 +1091,10 @@ def get_instruments_by_market(market_id):
     
     try:
         cur.execute("""
-            SELECT id, symbol, name, description, created_at
+            SELECT id, symbol, timeframe, name, description, created_at
             FROM instruments
             WHERE market_id = %s
-            ORDER BY symbol
+            ORDER BY symbol, timeframe
         """, (market_id,))
         instruments = cur.fetchall()
         return [dict(i) for i in instruments]
