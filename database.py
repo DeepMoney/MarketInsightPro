@@ -937,13 +937,13 @@ def seed_portfolio_0():
                 INSERT INTO trades (
                     machine_id, trade_id, instrument, direction,
                     entry_time, exit_time, entry_price, exit_price,
-                    contracts, pnl, initial_risk, holding_minutes, r_multiple
+                    contracts, pnl, initial_risk, holding_minutes, r_multiple, timeframe
                 )
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
                 trade['machine_id'], trade['trade_id'], trade['instrument'], trade['direction'],
                 trade['entry_time'], trade['exit_time'], trade['entry_price'], trade['exit_price'],
-                trade['contracts'], trade['pnl'], trade['initial_risk'], holding_minutes, r_multiple
+                trade['contracts'], trade['pnl'], trade['initial_risk'], holding_minutes, r_multiple, '15min'
             ))
         
         conn.commit()

@@ -51,6 +51,8 @@ if 'navigation_mode' not in st.session_state:
     st.session_state.navigation_mode = 'markets'  # markets, instruments, portfolios
 if 'selected_instrument_id' not in st.session_state:
     st.session_state.selected_instrument_id = None
+if 'db_initialized' not in st.session_state:
+    st.session_state.db_initialized = False
 
 from database import (
     get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
@@ -62,17 +64,21 @@ from database import (
 from data_generator import generate_market_data, generate_trade_data
 import uuid as uuid_lib
 
-try:
-    init_database()
-    seed_initial_data()  # Seed markets, instruments, and contract specs
-    migrate_machines_to_portfolios()  # Migrate existing machines to portfolios
-    seed_portfolio_0()  # Create Portfolio 0 with test trades for July 1, 2025
+if not st.session_state.db_initialized:
+    try:
+        init_database()
+        seed_initial_data()  # Seed markets, instruments, and contract specs
+        migrate_machines_to_portfolios()  # Migrate existing machines to portfolios
+        seed_portfolio_0()  # Create Portfolio 0 with test trades for July 1, 2025
+        st.session_state.db_initialized = True
+        db_available = True
+    except Exception as e:
+        db_available = False
+        st.error(f"⚠️ Database connection failed: {str(e)}")
+        st.info("Please ensure PostgreSQL is running and DATABASE_URL environment variable is set.")
+        st.stop()
+else:
     db_available = True
-except Exception as e:
-    db_available = False
-    st.error(f"⚠️ Database connection failed: {str(e)}")
-    st.info("Please ensure PostgreSQL is running and DATABASE_URL environment variable is set.")
-    st.stop()
 
 # ========== NEW NAVIGATION: Markets → Instruments → Portfolios ==========
 
