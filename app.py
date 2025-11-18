@@ -84,7 +84,7 @@ else:
 
 # Navigation Mode: Markets
 if st.session_state.navigation_mode == 'markets':
-    st.header("📁 Markets")
+    st.header("📈 Markets")
     st.markdown("Select a market to view its instruments and portfolios:")
     
     # Get all markets from database
