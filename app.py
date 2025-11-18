@@ -57,15 +57,16 @@ from database import (
     get_trades_for_machine, get_scenarios_for_machine, init_database, 
     get_market_data, bulk_insert_market_data, seed_initial_data, migrate_machines_to_portfolios,
     get_all_markets, get_instruments_by_market, get_all_portfolios, get_portfolio_by_id,
-    create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments
+    create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments, seed_portfolio_0
 )
 from data_generator import generate_market_data, generate_trade_data
 import uuid as uuid_lib
 
 try:
     init_database()
-    seed_initial_data()  # Seed markets and instruments
+    seed_initial_data()  # Seed markets, instruments, and contract specs
     migrate_machines_to_portfolios()  # Migrate existing machines to portfolios
+    seed_portfolio_0()  # Create Portfolio 0 with test trades for July 1, 2025
     db_available = True
 except Exception as e:
     db_available = False
@@ -158,7 +159,7 @@ if st.session_state.navigation_mode == 'instruments':
     
     st.stop()
 
-# Navigation Mode: Portfolios (continues to old code below)
+# Navigation Mode: Portfolios
 if st.session_state.navigation_mode == 'portfolios':
     # Sidebar navigation
     with st.sidebar:
@@ -170,13 +171,61 @@ if st.session_state.navigation_mode == 'portfolios':
     markets = get_all_markets()
     current_market = next((m for m in markets if m['id'] == st.session_state.selected_market_id), None)
     
+    st.header("💼 Portfolios")
     if current_market:
-        st.info(f"**Current Market:** {current_market['name']}")
+        st.markdown(f"**Market Filter:** {current_market['name']}")
     
-    # Continue with old market-based flow below (will be replaced incrementally)
-    st.session_state.selected_market = 'MES'  # Temporary compatibility
-
-# Rest of old code continues below...
+    # Get all portfolios
+    all_portfolios = get_all_portfolios()
+    
+    if not all_portfolios:
+        st.info("No portfolios found. Create your first portfolio to get started!")
+    else:
+        st.markdown(f"**Total Portfolios:** {len(all_portfolios)}")
+        st.divider()
+        
+        # Display portfolios
+        for portfolio in all_portfolios:
+            with st.expander(f"{'🟢' if portfolio['status'] == 'live' else '⚪'} {portfolio['name']}", expanded=(portfolio['name'] == 'Portfolio 0')):
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    st.metric("Starting Capital", f"${portfolio['starting_capital']:,.0f}")
+                with col2:
+                    st.metric("Status", portfolio['status'].title())
+                with col3:
+                    # Get number of trades (returns DataFrame)
+                    trades_df = get_trades_for_machine(portfolio['id'])
+                    if not trades_df.empty:
+                        total_pnl = trades_df['pnl'].sum()
+                        st.metric("Total P&L", f"${total_pnl:,.2f}", delta=f"{len(trades_df)} trades")
+                    else:
+                        st.metric("Trades", "0")
+                
+                # Show instruments in this portfolio
+                instruments = get_portfolio_instruments(portfolio['id'])
+                if instruments:
+                    st.write("**Instruments:**")
+                    for inst in instruments:
+                        st.write(f"- {inst['symbol']} ({inst['timeframe']}) - {inst['allocation_percent']}% allocation")
+                
+                # Show trades summary if available
+                if not trades_df.empty:
+                    st.write(f"**Recent Trades:** ({len(trades_df)} total)")
+                    recent_trades = trades_df.head(5)[['instrument', 'direction', 'entry_time', 'exit_time', 'pnl']]
+                    st.dataframe(recent_trades, use_container_width=True, hide_index=True)
+                
+                # Action buttons
+                col_btn1, col_btn2 = st.columns(2)
+                if col_btn1.button(f"View Analytics", key=f"view_{portfolio['id']}", use_container_width=True):
+                    st.session_state.active_portfolio_id = portfolio['id']
+                    st.session_state.selected_market = 'MES'  # Temporary compatibility
+                    st.info(f"Analytics for {portfolio['name']} - Feature coming soon!")
+                
+                if portfolio['name'] == 'Portfolio 0' and col_btn2.button("Delete Example", key=f"delete_{portfolio['id']}", use_container_width=True):
+                    st.warning("Delete functionality coming soon")
+    
+    st.stop()
 
 if st.session_state.show_machine_creator:
     st.markdown(f"### ➕ Create New Machine for {st.session_state.selected_market}")

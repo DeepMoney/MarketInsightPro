@@ -96,17 +96,71 @@ def init_database():
             )
         """)
         
-        # Instruments Table (assets within markets)
+        # Contract Specifications Table (real contract specs keyed by base symbol)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS contract_specs (
+                symbol VARCHAR(20) PRIMARY KEY,
+                margin_initial DECIMAL(10, 2) NOT NULL,
+                point_value DECIMAL(10, 2) NOT NULL,
+                tick_size DECIMAL(10, 4) NOT NULL,
+                contract_multiplier DECIMAL(10, 2) DEFAULT 1.0,
+                currency VARCHAR(10) DEFAULT 'USD',
+                description TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        
+        # Instruments Table (assets within markets - symbol+timeframe combinations)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS instruments (
                 id VARCHAR(50) PRIMARY KEY,
                 market_id VARCHAR(50) NOT NULL REFERENCES markets(id) ON DELETE CASCADE,
                 symbol VARCHAR(20) NOT NULL,
+                timeframe VARCHAR(10) NOT NULL,
                 name VARCHAR(255) NOT NULL,
                 description TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(market_id, symbol)
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+        
+        # Drop old UNIQUE constraint if it exists (migration)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM pg_constraint 
+                    WHERE conname = 'instruments_market_id_symbol_key'
+                ) THEN
+                    ALTER TABLE instruments DROP CONSTRAINT instruments_market_id_symbol_key;
+                END IF;
+            END $$;
+        """)
+        
+        # Add new UNIQUE constraint for (market_id, symbol, timeframe)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM pg_constraint 
+                    WHERE conname = 'instruments_market_symbol_timeframe_key'
+                ) THEN
+                    ALTER TABLE instruments ADD CONSTRAINT instruments_market_symbol_timeframe_key 
+                    UNIQUE (market_id, symbol, timeframe);
+                END IF;
+            END $$;
+        """)
+        
+        # Add timeframe column to instruments if missing (migration for existing DBs)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'instruments' AND column_name = 'timeframe'
+                ) THEN
+                    ALTER TABLE instruments ADD COLUMN timeframe VARCHAR(10) NOT NULL DEFAULT '15min';
+                END IF;
+            END $$;
         """)
         
         cur.execute("""
@@ -133,10 +187,9 @@ def init_database():
                 id SERIAL PRIMARY KEY,
                 portfolio_id UUID NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
                 instrument_id VARCHAR(50) NOT NULL REFERENCES instruments(id) ON DELETE CASCADE,
-                timeframe VARCHAR(10) NOT NULL,
                 allocation_percent DECIMAL(5, 2) DEFAULT 100.00,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(portfolio_id, instrument_id, timeframe)
+                UNIQUE(portfolio_id, instrument_id)
             )
         """)
         
@@ -148,6 +201,19 @@ def init_database():
         cur.execute("""
             CREATE INDEX IF NOT EXISTS idx_portfolio_instruments_instrument 
             ON portfolio_instruments(instrument_id)
+        """)
+        
+        # Drop timeframe column from portfolio_instruments if it exists (migration)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = 'portfolio_instruments' AND column_name = 'timeframe'
+                ) THEN
+                    ALTER TABLE portfolio_instruments DROP COLUMN timeframe;
+                END IF;
+            END $$;
         """)
         
         # Trades Table (per machine)
@@ -597,8 +663,49 @@ def delete_scenario(scenario_id):
 
 # ========== NEW ARCHITECTURE: Markets, Instruments, Portfolios ==========
 
+def seed_contract_specs():
+    """Seed real contract specifications for trading instruments"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        # Real contract specs (as of 2024-2025)
+        contract_specs = [
+            # US Index Futures (Micro contracts)
+            ('MES', 1300.00, 5.00, 0.25, 5.0, 'USD', 'Micro E-mini S&P 500 futures contract'),
+            ('MNQ', 1650.00, 2.00, 0.25, 2.0, 'USD', 'Micro E-mini Nasdaq-100 futures contract'),
+            # Forex (MT5) - example specs (may vary by broker)
+            ('EURUSD', 100.00, 10.00, 0.0001, 100000.0, 'USD', 'Euro vs US Dollar standard lot'),
+            ('USDJPY', 100.00, 10.00, 0.01, 100000.0, 'USD', 'US Dollar vs Japanese Yen standard lot'),
+            ('USDCAD', 100.00, 10.00, 0.0001, 100000.0, 'USD', 'US Dollar vs Canadian Dollar standard lot'),
+            # Crypto (example specs - highly volatile)
+            ('BTCUSDT', 5000.00, 1.00, 0.01, 1.0, 'USDT', 'Bitcoin vs Tether'),
+            ('ETHUSDT', 1000.00, 1.00, 0.01, 1.0, 'USDT', 'Ethereum vs Tether'),
+            ('LTCUSDT', 200.00, 1.00, 0.01, 1.0, 'USDT', 'Litecoin vs Tether'),
+        ]
+        
+        for symbol, margin, point_val, tick, multiplier, currency, desc in contract_specs:
+            cur.execute("""
+                INSERT INTO contract_specs (symbol, margin_initial, point_value, tick_size, contract_multiplier, currency, description)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol) DO UPDATE SET
+                    margin_initial = EXCLUDED.margin_initial,
+                    point_value = EXCLUDED.point_value,
+                    tick_size = EXCLUDED.tick_size,
+                    contract_multiplier = EXCLUDED.contract_multiplier
+            """, (symbol, margin, point_val, tick, multiplier, currency, desc))
+        
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
 def seed_initial_data():
-    """Seed initial markets and instruments with all timeframe combinations"""
+    """Seed initial markets, instruments, and contract specs with all timeframe combinations"""
     conn = get_db_connection()
     cur = conn.cursor()
     
@@ -616,6 +723,9 @@ def seed_initial_data():
                 VALUES (%s, %s, %s)
                 ON CONFLICT (id) DO NOTHING
             """, (market_id, name, description))
+        
+        # Seed contract specs first
+        seed_contract_specs()
         
         # Base symbols with their markets
         base_symbols = [
@@ -644,7 +754,7 @@ def seed_initial_data():
                 cur.execute("""
                     INSERT INTO instruments (id, market_id, symbol, timeframe, name, description)
                     VALUES (%s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (id) DO NOTHING
+                    ON CONFLICT ON CONSTRAINT instruments_market_symbol_timeframe_key DO NOTHING
                 """, (instrument_id, market_id, base_symbol, timeframe, instrument_name, f"{base_name} at {timeframe} timeframe"))
         
         conn.commit()
@@ -713,6 +823,132 @@ def migrate_machines_to_portfolios():
         
         conn.commit()
         return migrated_count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def seed_portfolio_0():
+    """Create Portfolio 0 with test trades for July 1, 2025 (example data)"""
+    import uuid as uuid_lib
+    from datetime import datetime
+    
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    
+    try:
+        portfolio_id = str(uuid_lib.uuid4())
+        
+        # Check if Portfolio 0 already exists
+        cur.execute("SELECT id FROM portfolios WHERE name = 'Portfolio 0'")
+        existing = cur.fetchone()
+        if existing:
+            print("Portfolio 0 already exists, skipping seed")
+            return existing['id']
+        
+        # Create Portfolio 0
+        cur.execute("""
+            INSERT INTO portfolios (id, name, starting_capital, status, description)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+        """, (portfolio_id, 'Portfolio 0', 100000.00, 'simulated', 'Example portfolio with test trades for July 1, 2025'))
+        
+        # Add MES and MNQ instruments (50% each) - using existing instrument IDs from migration
+        cur.execute("""
+            INSERT INTO portfolio_instruments (portfolio_id, instrument_id, allocation_percent)
+            VALUES (%s, %s, %s), (%s, %s, %s)
+        """, (portfolio_id, 'MES', 50.00, portfolio_id, 'MNQ', 50.00))
+        
+        # Create 4 test trades for July 1, 2025
+        # MES Long: Buy 1 @ 5600.00, Exit @ 5615.00 = +15 points × $5 = +$75
+        # MES Short: Sell 1 @ 5612.00, Exit @ 5598.00 = +14 points × $5 = +$70
+        # MNQ Long: Buy 1 @ 19700.00, Exit @ 19785.00 = +85 points × $2 = +$170
+        # MNQ Short: Sell 1 @ 19760.00, Exit @ 19680.00 = +80 points × $2 = +$160
+        
+        base_date = datetime(2025, 7, 1, 9, 30, 0)  # July 1, 2025 at 9:30 AM
+        
+        trades = [
+            # MES Long Trade
+            {
+                'machine_id': portfolio_id,
+                'trade_id': 'MES_LONG_001',
+                'instrument': 'MES',
+                'direction': 'Long',
+                'entry_time': datetime(2025, 7, 1, 9, 35, 0),
+                'exit_time': datetime(2025, 7, 1, 10, 15, 0),
+                'entry_price': 5600.00,
+                'exit_price': 5615.00,
+                'contracts': 1,
+                'pnl': 75.00,  # (5615 - 5600) × $5 × 1
+                'initial_risk': 1300.00
+            },
+            # MES Short Trade
+            {
+                'machine_id': portfolio_id,
+                'trade_id': 'MES_SHORT_001',
+                'instrument': 'MES',
+                'direction': 'Short',
+                'entry_time': datetime(2025, 7, 1, 10, 45, 0),
+                'exit_time': datetime(2025, 7, 1, 11, 30, 0),
+                'entry_price': 5612.00,
+                'exit_price': 5598.00,
+                'contracts': 1,
+                'pnl': 70.00,  # (5612 - 5598) × $5 × 1
+                'initial_risk': 1300.00
+            },
+            # MNQ Long Trade
+            {
+                'machine_id': portfolio_id,
+                'trade_id': 'MNQ_LONG_001',
+                'instrument': 'MNQ',
+                'direction': 'Long',
+                'entry_time': datetime(2025, 7, 1, 13, 0, 0),
+                'exit_time': datetime(2025, 7, 1, 14, 30, 0),
+                'entry_price': 19700.00,
+                'exit_price': 19785.00,
+                'contracts': 1,
+                'pnl': 170.00,  # (19785 - 19700) × $2 × 1
+                'initial_risk': 1650.00
+            },
+            # MNQ Short Trade
+            {
+                'machine_id': portfolio_id,
+                'trade_id': 'MNQ_SHORT_001',
+                'instrument': 'MNQ',
+                'direction': 'Short',
+                'entry_time': datetime(2025, 7, 1, 14, 45, 0),
+                'exit_time': datetime(2025, 7, 1, 15, 30, 0),
+                'entry_price': 19760.00,
+                'exit_price': 19680.00,
+                'contracts': 1,
+                'pnl': 160.00,  # (19760 - 19680) × $2 × 1
+                'initial_risk': 1650.00
+            }
+        ]
+        
+        for trade in trades:
+            holding_minutes = int((trade['exit_time'] - trade['entry_time']).total_seconds() / 60)
+            r_multiple = trade['pnl'] / trade['initial_risk'] if trade['initial_risk'] > 0 else 0
+            
+            cur.execute("""
+                INSERT INTO trades (
+                    machine_id, trade_id, instrument, direction,
+                    entry_time, exit_time, entry_price, exit_price,
+                    contracts, pnl, initial_risk, holding_minutes, r_multiple
+                )
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                trade['machine_id'], trade['trade_id'], trade['instrument'], trade['direction'],
+                trade['entry_time'], trade['exit_time'], trade['entry_price'], trade['exit_price'],
+                trade['contracts'], trade['pnl'], trade['initial_risk'], holding_minutes, r_multiple
+            ))
+        
+        conn.commit()
+        print(f"✅ Created Portfolio 0 with 4 test trades (Total P&L: $475)")
+        return portfolio_id
     except Exception as e:
         conn.rollback()
         raise e
