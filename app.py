@@ -53,6 +53,10 @@ if 'selected_instrument_id' not in st.session_state:
     st.session_state.selected_instrument_id = None
 if 'db_initialized' not in st.session_state:
     st.session_state.db_initialized = False
+if 'show_machine_creator' not in st.session_state:
+    st.session_state.show_machine_creator = False
+if 'active_machine_id' not in st.session_state:
+    st.session_state.active_machine_id = None
 
 from database import (
     get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
