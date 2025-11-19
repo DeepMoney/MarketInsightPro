@@ -29,7 +29,7 @@ MAX_SCENARIOS = 10
 st.set_page_config(page_title="Trading What-If Analysis", layout="wide", initial_sidebar_state="expanded")
 
 st.title("📊 Trading Portfolio What-If Analysis")
-st.markdown("**Micro S&P 500 (MES) & Micro Nasdaq (MNQ) Futures Analysis**")
+st.markdown("**Investor Platform for Market and Portfolio Analysis**")
 
 if 'market_data' not in st.session_state:
     st.session_state.market_data = {}
