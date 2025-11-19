@@ -1126,11 +1126,16 @@ def get_all_instruments():
 # ========== CRUD Operations for Markets ==========
 
 def create_market(market_id, name, description=''):
-    """Create a new market"""
+    """Create a new market with duplicate checking"""
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
+        # Check for duplicates
+        cur.execute("SELECT id FROM markets WHERE id = %s OR name = %s", (market_id, name))
+        if cur.fetchone():
+            raise ValueError(f"Market with ID '{market_id}' or name '{name}' already exists")
+        
         cur.execute("""
             INSERT INTO markets (id, name, description)
             VALUES (%s, %s, %s)
@@ -1187,11 +1192,16 @@ def delete_market(market_id):
 # ========== CRUD Operations for Instruments ==========
 
 def create_instrument(instrument_id, market_id, symbol, timeframe, name, description=''):
-    """Create a new instrument"""
+    """Create a new instrument with duplicate checking"""
     conn = get_db_connection()
-    cur = conn.cursor()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
     
     try:
+        # Check for duplicates
+        cur.execute("SELECT id FROM instruments WHERE id = %s", (instrument_id,))
+        if cur.fetchone():
+            raise ValueError(f"Instrument with ID '{instrument_id}' already exists")
+        
         cur.execute("""
             INSERT INTO instruments (id, market_id, symbol, timeframe, name, description)
             VALUES (%s, %s, %s, %s, %s, %s)

@@ -67,6 +67,10 @@ if 'edit_instrument_id' not in st.session_state:
     st.session_state.edit_instrument_id = None
 if 'edit_portfolio_id' not in st.session_state:
     st.session_state.edit_portfolio_id = None
+if 'confirm_delete' not in st.session_state:
+    st.session_state.confirm_delete = None
+if 'show_machine_editor' not in st.session_state:
+    st.session_state.show_machine_editor = False
 
 from database import (
     get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
@@ -97,6 +101,41 @@ if not st.session_state.db_initialized:
         st.stop()
 else:
     db_available = True
+
+# ========== Delete Confirmation Modal ==========
+if st.session_state.confirm_delete:
+    delete_type, delete_id, delete_name = st.session_state.confirm_delete
+    
+    st.warning(f"⚠️ **Confirm Delete: {delete_name}**")
+    st.markdown(f"Are you sure you want to delete this {delete_type}? This action cannot be undone.")
+    
+    col1, col2, col3 = st.columns([1, 1, 3])
+    if col1.button("✅ Yes, Delete", type="primary", use_container_width=True):
+        try:
+            if delete_type == 'market':
+                delete_market(delete_id)
+                st.success(f"✅ Market '{delete_name}' deleted!")
+            elif delete_type == 'instrument':
+                delete_instrument(delete_id)
+                st.success(f"✅ Instrument '{delete_name}' deleted!")
+            elif delete_type == 'portfolio':
+                delete_portfolio(delete_id)
+                st.success(f"✅ Portfolio '{delete_name}' deleted!")
+            elif delete_type == 'trades':
+                count = delete_trades_for_portfolio(delete_id)
+                st.success(f"✅ Deleted {count} trades!")
+            
+            st.session_state.confirm_delete = None
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+            st.session_state.confirm_delete = None
+    
+    if col2.button("❌ Cancel", use_container_width=True):
+        st.session_state.confirm_delete = None
+        st.rerun()
+    
+    st.stop()
 
 # ========== NEW NAVIGATION: Markets → Instruments → Portfolios ==========
 
@@ -201,12 +240,8 @@ if st.session_state.navigation_mode == 'markets':
                 st.rerun()
             
             if col_del.button("🗑️", use_container_width=True, key=f"delete_market_{market['id']}", help="Delete market"):
-                try:
-                    delete_market(market['id'])
-                    st.success(f"✅ Market '{market['name']}' deleted!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error deleting market: {str(e)}")
+                st.session_state.confirm_delete = ('market', market['id'], market['name'])
+                st.rerun()
     
     st.stop()
 
@@ -293,12 +328,8 @@ if st.session_state.navigation_mode == 'instruments':
                         st.session_state.show_instrument_creator = False
                         st.rerun()
                     if col_del.button("🗑️", key=f"del_inst_{inst['id']}", help="Delete"):
-                        try:
-                            delete_instrument(inst['id'])
-                            st.success(f"✅ Deleted {inst['name']}")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
+                        st.session_state.confirm_delete = ('instrument', inst['id'], inst['name'])
+                        st.rerun()
     
     st.divider()
     
@@ -448,12 +479,8 @@ if st.session_state.navigation_mode == 'portfolios':
                     st.rerun()
                 
                 if col_btn3.button("🗑️ Delete", key=f"delete_{portfolio['id']}", use_container_width=True):
-                    try:
-                        delete_portfolio(portfolio['id'])
-                        st.success(f"✅ Deleted '{portfolio['name']}'")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
+                    st.session_state.confirm_delete = ('portfolio', portfolio['id'], portfolio['name'])
+                    st.rerun()
     
     st.stop()
 
@@ -497,12 +524,8 @@ if st.session_state.navigation_mode == 'analytics':
         # Delete Data
         with st.expander("🗑️ Delete Data"):
             if st.button("Delete All Trades", key="del_trades_btn", use_container_width=True):
-                try:
-                    count = delete_trades_for_portfolio(st.session_state.active_machine_id)
-                    st.success(f"✅ Deleted {count} trades!")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+                st.session_state.confirm_delete = ('trades', st.session_state.active_machine_id, 'all trades')
+                st.rerun()
     
     # Continue with all the existing analytics features below...
     # (Let the rest of the app.py code run normally)

@@ -2,11 +2,27 @@
 
 ## Overview
 
-This system is a trading analytics and scenario modeling application for Micro S&P 500 (MES) and Micro Nasdaq (MNQ) futures. It allows traders to analyze historical data, visualize performance, and run "what-if" scenarios to optimize strategies. The application is built with Streamlit for the frontend and pandas/numpy for data processing, offering comprehensive analytics and interactive visualizations. It is designed to be production-ready and supports a machine-based architecture with PostgreSQL persistence for various trading accounts and strategies.
+This system is a comprehensive trading analytics and scenario modeling application with full CRUD (Create, Read, Update, Delete) management for Markets, Instruments, and Portfolios. Built with Streamlit frontend and PostgreSQL backend, it features:
+- **Hierarchical Navigation**: Markets → Instruments → Portfolios → Analytics
+- **Full CRUD Operations**: Create, edit, and delete markets, instruments, and portfolios with confirmation dialogs
+- **Data Management**: CSV upload for trade data and market data (OHLCV), plus delete operations
+- **Contract Specifications**: Real CME Group and Interactive Brokers margin requirements (MES: $2,450, MNQ: $3,395)
+- **What-If Analysis**: Scenario modeling, comparison matrices, equity curves, heatmaps, and comprehensive performance metrics
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+
+## Recent Changes (Nov 19, 2025)
+
+- Added full CRUD system for Markets, Instruments, and Portfolios
+- Implemented delete confirmation dialogs for safety
+- Added duplicate checking on create operations
+- CSV upload/import for trades and market data in Analytics view
+- Updated contract specs with real CME/IB margin data
+- Fixed schema: trades.machine_id now correctly references portfolios(id)
+- Changed main page subtitle to "Investor Platform for Market and Portfolio Analysis"
+- Changed folder icon to modern chart icon (📈) for Markets
 
 ## System Architecture
 
