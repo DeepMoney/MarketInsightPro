@@ -223,15 +223,27 @@ if st.session_state.navigation_mode == 'portfolios':
                 
                 # Action buttons
                 col_btn1, col_btn2 = st.columns(2)
-                if col_btn1.button(f"View Analytics", key=f"view_{portfolio['id']}", use_container_width=True):
-                    st.session_state.active_portfolio_id = portfolio['id']
-                    st.session_state.selected_market = 'MES'  # Temporary compatibility
-                    st.info(f"Analytics for {portfolio['name']} - Feature coming soon!")
+                if col_btn1.button(f"📊 View Analytics", key=f"view_{portfolio['id']}", use_container_width=True, type="primary"):
+                    # Set active portfolio for analytics
+                    st.session_state.active_machine_id = portfolio['id']
+                    st.session_state.navigation_mode = 'analytics'
+                    st.rerun()
                 
                 if portfolio['name'] == 'Portfolio 0' and col_btn2.button("Delete Example", key=f"delete_{portfolio['id']}", use_container_width=True):
                     st.warning("Delete functionality coming soon")
     
     st.stop()
+
+# Navigation Mode: Analytics (all the existing features)
+if st.session_state.navigation_mode == 'analytics':
+    # Sidebar navigation
+    with st.sidebar:
+        if st.button("← Back to Portfolios"):
+            st.session_state.navigation_mode = 'portfolios'
+            st.rerun()
+    
+    # Continue with all the existing analytics features below...
+    # (Let the rest of the app.py code run normally)
 
 if st.session_state.show_machine_creator:
     st.markdown(f"### ➕ Create New Machine for {st.session_state.selected_market}")
