@@ -857,11 +857,11 @@ def seed_portfolio_0():
             RETURNING id
         """, (portfolio_id, 'Portfolio 0', 100000.00, 'simulated', 'Example portfolio with test trades for July 1, 2025'))
         
-        # Add MES and MNQ instruments (50% each) - using 15min timeframe as default
+        # Add MES and MNQ instruments (50% each) - using 15min timeframe (IDs are 'MES' and 'MNQ')
         cur.execute("""
             INSERT INTO portfolio_instruments (portfolio_id, instrument_id, allocation_percent)
             VALUES (%s, %s, %s), (%s, %s, %s)
-        """, (portfolio_id, 'MES_15min', 50.00, portfolio_id, 'MNQ_15min', 50.00))
+        """, (portfolio_id, 'MES', 50.00, portfolio_id, 'MNQ', 50.00))
         
         # Create 4 test trades for July 1, 2025
         # MES Long: Buy 1 @ 5600.00, Exit @ 5615.00 = +15 points × $5 = +$75
