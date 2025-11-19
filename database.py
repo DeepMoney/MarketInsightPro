@@ -1121,3 +1121,209 @@ def get_all_instruments():
     finally:
         cur.close()
         conn.close()
+
+
+# ========== CRUD Operations for Markets ==========
+
+def create_market(market_id, name, description=''):
+    """Create a new market"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO markets (id, name, description)
+            VALUES (%s, %s, %s)
+            RETURNING id
+        """, (market_id, name, description))
+        conn.commit()
+        return market_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def update_market(market_id, name, description):
+    """Update an existing market"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE markets
+            SET name = %s, description = %s
+            WHERE id = %s
+        """, (name, description, market_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_market(market_id):
+    """Delete a market (CASCADE will delete related instruments and data)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("DELETE FROM markets WHERE id = %s", (market_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ========== CRUD Operations for Instruments ==========
+
+def create_instrument(instrument_id, market_id, symbol, timeframe, name, description=''):
+    """Create a new instrument"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            INSERT INTO instruments (id, market_id, symbol, timeframe, name, description)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (instrument_id, market_id, symbol, timeframe, name, description))
+        conn.commit()
+        return instrument_id
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def update_instrument(instrument_id, name, description):
+    """Update an existing instrument (symbol and timeframe are immutable)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE instruments
+            SET name = %s, description = %s
+            WHERE id = %s
+        """, (name, description, instrument_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_instrument(instrument_id):
+    """Delete an instrument (CASCADE will delete related data)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("DELETE FROM instruments WHERE id = %s", (instrument_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ========== CRUD Operations for Portfolios ==========
+
+def update_portfolio(portfolio_id, name, starting_capital, status, description=''):
+    """Update an existing portfolio"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            UPDATE portfolios
+            SET name = %s, starting_capital = %s, status = %s, description = %s
+            WHERE id = %s
+        """, (name, starting_capital, status, description, portfolio_id))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_portfolio(portfolio_id):
+    """Delete a portfolio (CASCADE will delete related trades and instruments)"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("DELETE FROM portfolios WHERE id = %s", (portfolio_id,))
+        conn.commit()
+        return True
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+# ========== Data Management Operations ==========
+
+def delete_market_data(instrument, timeframe):
+    """Delete market data for a specific instrument and timeframe"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            DELETE FROM market_data 
+            WHERE instrument = %s AND timeframe = %s
+        """, (instrument, timeframe))
+        conn.commit()
+        deleted_count = cur.rowcount
+        return deleted_count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()
+
+
+def delete_trades_for_portfolio(portfolio_id):
+    """Delete all trades for a specific portfolio"""
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    try:
+        cur.execute("""
+            DELETE FROM trades 
+            WHERE machine_id = %s
+        """, (portfolio_id,))
+        conn.commit()
+        deleted_count = cur.rowcount
+        return deleted_count
+    except Exception as e:
+        conn.rollback()
+        raise e
+    finally:
+        cur.close()
+        conn.close()

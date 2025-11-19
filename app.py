@@ -57,13 +57,27 @@ if 'show_machine_creator' not in st.session_state:
     st.session_state.show_machine_creator = False
 if 'active_machine_id' not in st.session_state:
     st.session_state.active_machine_id = None
+if 'show_market_creator' not in st.session_state:
+    st.session_state.show_market_creator = False
+if 'show_instrument_creator' not in st.session_state:
+    st.session_state.show_instrument_creator = False
+if 'edit_market_id' not in st.session_state:
+    st.session_state.edit_market_id = None
+if 'edit_instrument_id' not in st.session_state:
+    st.session_state.edit_instrument_id = None
+if 'edit_portfolio_id' not in st.session_state:
+    st.session_state.edit_portfolio_id = None
 
 from database import (
     get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
     get_trades_for_machine, get_scenarios_for_machine, init_database, 
     get_market_data, bulk_insert_market_data, seed_initial_data, migrate_machines_to_portfolios,
     get_all_markets, get_instruments_by_market, get_all_portfolios, get_portfolio_by_id,
-    create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments, seed_portfolio_0
+    create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments, seed_portfolio_0,
+    create_market, update_market, delete_market,
+    create_instrument, update_instrument, delete_instrument,
+    update_portfolio, delete_portfolio,
+    delete_market_data, delete_trades_for_portfolio
 )
 from data_generator import generate_market_data, generate_trade_data
 import uuid as uuid_lib
@@ -91,6 +105,68 @@ if st.session_state.navigation_mode == 'markets':
     st.header("📈 Markets")
     st.markdown("Select a market to view its instruments and portfolios:")
     
+    # Sidebar management buttons
+    with st.sidebar:
+        st.subheader("Market Management")
+        if st.button("➕ Create Market", use_container_width=True):
+            st.session_state.show_market_creator = True
+            st.session_state.edit_market_id = None
+            st.rerun()
+    
+    # Show Create Market Form
+    if st.session_state.show_market_creator and st.session_state.edit_market_id is None:
+        st.markdown("### ➕ Create New Market")
+        with st.form("create_market_form"):
+            market_id = st.text_input("Market ID", placeholder="e.g., commodities", help="Lowercase, no spaces (use underscore)")
+            market_name = st.text_input("Market Name", placeholder="e.g., Commodities")
+            market_desc = st.text_area("Description", placeholder="Brief description of this market")
+            
+            col1, col2 = st.columns(2)
+            create_btn = col1.form_submit_button("✅ Create", use_container_width=True, type="primary")
+            cancel_btn = col2.form_submit_button("❌ Cancel", use_container_width=True)
+            
+            if create_btn and market_id and market_name:
+                try:
+                    create_market(market_id, market_name, market_desc)
+                    st.success(f"✅ Market '{market_name}' created successfully!")
+                    st.session_state.show_market_creator = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error creating market: {str(e)}")
+            elif cancel_btn:
+                st.session_state.show_market_creator = False
+                st.rerun()
+        st.divider()
+    
+    # Show Edit Market Form
+    if st.session_state.edit_market_id:
+        markets = get_all_markets()
+        edit_market = next((m for m in markets if m['id'] == st.session_state.edit_market_id), None)
+        
+        if edit_market:
+            st.markdown(f"### ✏️ Edit Market: {edit_market['name']}")
+            with st.form("edit_market_form"):
+                st.caption(f"Market ID: `{edit_market['id']}` (cannot be changed)")
+                new_name = st.text_input("Market Name", value=edit_market['name'])
+                new_desc = st.text_area("Description", value=edit_market.get('description', ''))
+                
+                col1, col2 = st.columns(2)
+                update_btn = col1.form_submit_button("💾 Save Changes", use_container_width=True, type="primary")
+                cancel_btn = col2.form_submit_button("❌ Cancel", use_container_width=True)
+                
+                if update_btn and new_name:
+                    try:
+                        update_market(edit_market['id'], new_name, new_desc)
+                        st.success(f"✅ Market '{new_name}' updated successfully!")
+                        st.session_state.edit_market_id = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error updating market: {str(e)}")
+                elif cancel_btn:
+                    st.session_state.edit_market_id = None
+                    st.rerun()
+            st.divider()
+    
     # Get all markets from database
     markets = get_all_markets()
     
@@ -112,10 +188,25 @@ if st.session_state.navigation_mode == 'markets':
             
             st.metric("Instruments", f"{unique_symbols} symbols × 6 timeframes")
             
-            if st.button(f"View {market['name']}", use_container_width=True, type="primary", key=f"select_market_{market['id']}"):
+            # Action buttons
+            col_view, col_edit, col_del = st.columns([2, 1, 1])
+            if col_view.button(f"View", use_container_width=True, type="primary", key=f"select_market_{market['id']}"):
                 st.session_state.selected_market_id = market['id']
                 st.session_state.navigation_mode = 'instruments'
                 st.rerun()
+            
+            if col_edit.button("✏️", use_container_width=True, key=f"edit_market_{market['id']}", help="Edit market"):
+                st.session_state.edit_market_id = market['id']
+                st.session_state.show_market_creator = False
+                st.rerun()
+            
+            if col_del.button("🗑️", use_container_width=True, key=f"delete_market_{market['id']}", help="Delete market"):
+                try:
+                    delete_market(market['id'])
+                    st.success(f"✅ Market '{market['name']}' deleted!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error deleting market: {str(e)}")
     
     st.stop()
 
@@ -126,6 +217,13 @@ if st.session_state.navigation_mode == 'instruments':
         if st.button("← Back to Markets"):
             st.session_state.navigation_mode = 'markets'
             st.session_state.selected_market_id = None
+            st.rerun()
+        
+        st.divider()
+        st.subheader("Instrument Management")
+        if st.button("➕ Create Instrument", use_container_width=True):
+            st.session_state.show_instrument_creator = True
+            st.session_state.edit_instrument_id = None
             st.rerun()
     
     # Get selected market
@@ -139,6 +237,36 @@ if st.session_state.navigation_mode == 'instruments':
     st.header(f"📊 {current_market['name']} - Instruments")
     st.markdown(f"*{current_market.get('description', '')}*")
     
+    # Show Create Instrument Form
+    if st.session_state.show_instrument_creator and st.session_state.edit_instrument_id is None:
+        st.markdown("### ➕ Create New Instrument")
+        with st.form("create_instrument_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                symbol = st.text_input("Symbol", placeholder="e.g., MES, AAPL")
+                timeframe = st.selectbox("Timeframe", ['5min', '15min', '30min', '1H', '4H', 'Daily'])
+            with col2:
+                name = st.text_input("Name", placeholder="e.g., Micro E-mini S&P 500")
+                description = st.text_input("Description (optional)")
+            
+            col_create, col_cancel = st.columns(2)
+            create_btn = col_create.form_submit_button("✅ Create", use_container_width=True, type="primary")
+            cancel_btn = col_cancel.form_submit_button("❌ Cancel", use_container_width=True)
+            
+            if create_btn and symbol and name:
+                instrument_id = f"{symbol}_{timeframe}" if timeframe != '15min' else symbol
+                try:
+                    create_instrument(instrument_id, current_market['id'], symbol, timeframe, name, description)
+                    st.success(f"✅ Instrument '{name}' created!")
+                    st.session_state.show_instrument_creator = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+            elif cancel_btn:
+                st.session_state.show_instrument_creator = False
+                st.rerun()
+        st.divider()
+    
     # Get instruments for this market
     instruments = get_instruments_by_market(current_market['id'])
     
@@ -147,8 +275,8 @@ if st.session_state.navigation_mode == 'instruments':
     for inst in instruments:
         symbol = inst['symbol']
         if symbol not in symbols_dict:
-            symbols_dict[symbol] = {'name': inst['name'].split(' - ')[0], 'timeframes': []}
-        symbols_dict[symbol]['timeframes'].append(inst['timeframe'])
+            symbols_dict[symbol] = {'name': inst['name'].split(' - ')[0], 'instruments': []}
+        symbols_dict[symbol]['instruments'].append(inst)
     
     st.subheader(f"Available Instruments ({len(symbols_dict)} symbols)")
     
@@ -157,8 +285,20 @@ if st.session_state.navigation_mode == 'instruments':
     for idx, (symbol, data) in enumerate(sorted(symbols_dict.items())):
         with cols[idx % 2]:
             with st.expander(f"**{symbol}** - {data['name']}", expanded=False):
-                st.write("**Timeframes:**", ", ".join(sorted(data['timeframes'])))
-                st.caption(f"{len(data['timeframes'])} timeframe variations available")
+                for inst in sorted(data['instruments'], key=lambda x: x['timeframe']):
+                    col_tf, col_edit, col_del = st.columns([3, 1, 1])
+                    col_tf.write(f"⏱️ {inst['timeframe']}")
+                    if col_edit.button("✏️", key=f"edit_inst_{inst['id']}", help="Edit"):
+                        st.session_state.edit_instrument_id = inst['id']
+                        st.session_state.show_instrument_creator = False
+                        st.rerun()
+                    if col_del.button("🗑️", key=f"del_inst_{inst['id']}", help="Delete"):
+                        try:
+                            delete_instrument(inst['id'])
+                            st.success(f"✅ Deleted {inst['name']}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
     
     st.divider()
     
@@ -176,6 +316,13 @@ if st.session_state.navigation_mode == 'portfolios':
         if st.button("← Back to Instruments"):
             st.session_state.navigation_mode = 'instruments'
             st.rerun()
+        
+        st.divider()
+        st.subheader("Portfolio Management")
+        if st.button("➕ Create Portfolio", use_container_width=True):
+            st.session_state.show_portfolio_creator = True
+            st.session_state.edit_portfolio_id = None
+            st.rerun()
     
     # Get selected market for context
     markets = get_all_markets()
@@ -184,6 +331,69 @@ if st.session_state.navigation_mode == 'portfolios':
     st.header("💼 Portfolios")
     if current_market:
         st.markdown(f"**Market Filter:** {current_market['name']}")
+    
+    # Show Create Portfolio Form
+    if st.session_state.show_portfolio_creator and st.session_state.edit_portfolio_id is None:
+        st.markdown("### ➕ Create New Portfolio")
+        with st.form("create_portfolio_form"):
+            col1, col2 = st.columns(2)
+            with col1:
+                portfolio_name = st.text_input("Portfolio Name", placeholder="e.g., Growth Portfolio")
+                starting_capital = st.number_input("Starting Capital ($)", min_value=1000, value=100000, step=1000)
+            with col2:
+                status = st.selectbox("Status", ['live', 'simulated'])
+                description = st.text_area("Description (optional)", placeholder="Brief description")
+            
+            col_create, col_cancel = st.columns(2)
+            create_btn = col_create.form_submit_button("✅ Create", use_container_width=True, type="primary")
+            cancel_btn = col_cancel.form_submit_button("❌ Cancel", use_container_width=True)
+            
+            if create_btn and portfolio_name:
+                portfolio_id = str(uuid_lib.uuid4())
+                try:
+                    create_portfolio_db(portfolio_id, portfolio_name, starting_capital, status, description)
+                    st.success(f"✅ Portfolio '{portfolio_name}' created!")
+                    st.session_state.show_portfolio_creator = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+            elif cancel_btn:
+                st.session_state.show_portfolio_creator = False
+                st.rerun()
+        st.divider()
+    
+    # Show Edit Portfolio Form
+    if st.session_state.edit_portfolio_id:
+        all_portfolios = get_all_portfolios()
+        edit_port = next((p for p in all_portfolios if p['id'] == st.session_state.edit_portfolio_id), None)
+        
+        if edit_port:
+            st.markdown(f"### ✏️ Edit Portfolio: {edit_port['name']}")
+            with st.form("edit_portfolio_form"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    new_name = st.text_input("Portfolio Name", value=edit_port['name'])
+                    new_capital = st.number_input("Starting Capital ($)", value=float(edit_port['starting_capital']), min_value=1000.0, step=1000.0)
+                with col2:
+                    new_status = st.selectbox("Status", ['live', 'simulated'], index=0 if edit_port['status']=='live' else 1)
+                    new_desc = st.text_area("Description", value=edit_port.get('description', ''))
+                
+                col_save, col_cancel = st.columns(2)
+                save_btn = col_save.form_submit_button("💾 Save", use_container_width=True, type="primary")
+                cancel_btn = col_cancel.form_submit_button("❌ Cancel", use_container_width=True)
+                
+                if save_btn and new_name:
+                    try:
+                        update_portfolio(edit_port['id'], new_name, new_capital, new_status, new_desc)
+                        st.success(f"✅ Portfolio '{new_name}' updated!")
+                        st.session_state.edit_portfolio_id = None
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                elif cancel_btn:
+                    st.session_state.edit_portfolio_id = None
+                    st.rerun()
+            st.divider()
     
     # Get all portfolios
     all_portfolios = get_all_portfolios()
@@ -226,15 +436,24 @@ if st.session_state.navigation_mode == 'portfolios':
                     st.dataframe(recent_trades, use_container_width=True, hide_index=True)
                 
                 # Action buttons
-                col_btn1, col_btn2 = st.columns(2)
-                if col_btn1.button(f"📊 View Analytics", key=f"view_{portfolio['id']}", use_container_width=True, type="primary"):
-                    # Set active portfolio for analytics
+                col_btn1, col_btn2, col_btn3 = st.columns(3)
+                if col_btn1.button(f"📊 Analytics", key=f"view_{portfolio['id']}", use_container_width=True, type="primary"):
                     st.session_state.active_machine_id = portfolio['id']
                     st.session_state.navigation_mode = 'analytics'
                     st.rerun()
                 
-                if portfolio['name'] == 'Portfolio 0' and col_btn2.button("Delete Example", key=f"delete_{portfolio['id']}", use_container_width=True):
-                    st.warning("Delete functionality coming soon")
+                if col_btn2.button("✏️ Edit", key=f"edit_port_{portfolio['id']}", use_container_width=True):
+                    st.session_state.edit_portfolio_id = portfolio['id']
+                    st.session_state.show_portfolio_creator = False
+                    st.rerun()
+                
+                if col_btn3.button("🗑️ Delete", key=f"delete_{portfolio['id']}", use_container_width=True):
+                    try:
+                        delete_portfolio(portfolio['id'])
+                        st.success(f"✅ Deleted '{portfolio['name']}'")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
     
     st.stop()
 
@@ -245,6 +464,45 @@ if st.session_state.navigation_mode == 'analytics':
         if st.button("← Back to Portfolios"):
             st.session_state.navigation_mode = 'portfolios'
             st.rerun()
+        
+        st.divider()
+        st.subheader("📁 Data Management")
+        
+        # Trade Data Upload
+        with st.expander("📤 Import Trades"):
+            trades_csv = st.file_uploader("Upload Trades CSV", type=['csv'], key="import_trades_csv")
+            if trades_csv and st.button("Import", key="import_trades_btn"):
+                try:
+                    import pandas as pd
+                    trades_df = pd.read_csv(trades_csv)
+                    bulk_insert_trades(st.session_state.active_machine_id, trades_df)
+                    st.success(f"✅ Imported {len(trades_df)} trades!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        
+        # Market Data Upload
+        with st.expander("📤 Import Market Data"):
+            market_csv = st.file_uploader("Upload Market Data CSV", type=['csv'], key="import_market_csv")
+            st.caption("Required: instrument, timeframe, timestamp, open, high, low, close, volume")
+            if market_csv and st.button("Import", key="import_market_btn"):
+                try:
+                    import pandas as pd
+                    market_df = pd.read_csv(market_csv)
+                    bulk_insert_market_data(market_df)
+                    st.success(f"✅ Imported {len(market_df)} candles!")
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
+        
+        # Delete Data
+        with st.expander("🗑️ Delete Data"):
+            if st.button("Delete All Trades", key="del_trades_btn", use_container_width=True):
+                try:
+                    count = delete_trades_for_portfolio(st.session_state.active_machine_id)
+                    st.success(f"✅ Deleted {count} trades!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {str(e)}")
     
     # Continue with all the existing analytics features below...
     # (Let the rest of the app.py code run normally)
