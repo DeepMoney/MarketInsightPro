@@ -36,7 +36,7 @@ def init_database():
     cur = conn.cursor()
     
     try:
-        # Market Data Table (shared across machines)
+        # Market Data Table (shared across instruments)
         cur.execute("""
             CREATE TABLE IF NOT EXISTS market_data (
                 id SERIAL PRIMARY KEY,
@@ -51,6 +51,19 @@ def init_database():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(instrument, timeframe, timestamp)
             )
+        """)
+
+        # Add instrument_id column to market_data if missing (migration)
+        cur.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_name = 'market_data' AND column_name = 'instrument_id'
+                ) THEN
+                    ALTER TABLE market_data ADD COLUMN instrument_id VARCHAR(50) REFERENCES instruments(id) ON DELETE CASCADE;
+                END IF;
+            END $$;
         """)
         
         # Create index for fast queries
@@ -1118,6 +1131,65 @@ def get_all_instruments():
         """)
         instruments = cur.fetchall()
         return [dict(i) for i in instruments]
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_market_by_id(market_id):
+    """Get a specific market by ID"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT id, name, description, created_at
+            FROM markets
+            WHERE id = %s
+        """, (market_id,))
+        market = cur.fetchone()
+        return dict(market) if market else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_instrument_by_id(instrument_id):
+    """Get a specific instrument by ID"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT i.id, i.symbol, i.timeframe, i.name, i.description,
+                   i.market_id, i.created_at, m.name as market_name
+            FROM instruments i
+            JOIN markets m ON i.market_id = m.id
+            WHERE i.id = %s
+        """, (instrument_id,))
+        instrument = cur.fetchone()
+        return dict(instrument) if instrument else None
+    finally:
+        cur.close()
+        conn.close()
+
+
+def get_portfolios_by_instrument(instrument_id):
+    """Get all portfolios that use a specific instrument"""
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        cur.execute("""
+            SELECT DISTINCT p.id, p.name, p.starting_capital, p.status,
+                   p.description, p.created_at
+            FROM portfolios p
+            JOIN portfolio_instruments pi ON p.id = pi.portfolio_id
+            WHERE pi.instrument_id = %s
+            ORDER BY p.created_at DESC
+        """, (instrument_id,))
+        portfolios = cur.fetchall()
+        return [dict(p) for p in portfolios]
     finally:
         cur.close()
         conn.close()
