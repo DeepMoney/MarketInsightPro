@@ -1,0 +1,95 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  db:
+    image: postgres:14-alpine
+    container_name: marketinsight_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: trading_analytics
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PGPASSWORD:-postgres}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${PGPORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - marketinsight_network
+
+  # Streamlit Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: marketinsight_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGPORT: 5432
+      PGDATABASE: trading_analytics
+      PGUSER: postgres
+      PGPASSWORD: ${PGPASSWORD:-postgres}
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-in-production}
+      STREAMLIT_SERVER_PORT: 5000
+      STREAMLIT_SERVER_ADDRESS: 0.0.0.0
+      STREAMLIT_SERVER_HEADLESS: "true"
+      STREAMLIT_BROWSER_GATHER_USAGE_STATS: "false"
+    ports:
+      - "${APP_PORT:-5000}:5000"
+    volumes:
+      # Mount source code for development (comment out for production)
+      - ./app.py:/app/app.py
+      - ./database.py:/app/database.py
+      - ./analytics_engine.py:/app/analytics_engine.py
+      - ./scenario_engine.py:/app/scenario_engine.py
+      - ./visualizations.py:/app/visualizations.py
+      - ./data_generator.py:/app/data_generator.py
+      - ./portfolio_manager.py:/app/portfolio_manager.py
+      - ./machine_manager.py:/app/machine_manager.py
+    networks:
+      - marketinsight_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/_stcore/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # pgAdmin (optional - for database management)
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: marketinsight_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_EMAIL:-admin@marketinsight.local}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_PASSWORD:-admin}
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "${PGADMIN_PORT:-5050}:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - marketinsight_network
+    depends_on:
+      - db
+    profiles:
+      - tools  # Only start with: docker-compose --profile tools up
+
+volumes:
+  postgres_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  marketinsight_network:
+    driver: bridge

@@ -73,14 +73,14 @@ if 'show_machine_editor' not in st.session_state:
     st.session_state.show_machine_editor = False
 
 from database import (
-    get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades, 
-    get_trades_for_machine, get_scenarios_for_machine, init_database, 
+    get_all_machines, create_machine_db, update_machine_db, bulk_insert_trades,
+    get_trades_for_machine, get_scenarios_for_machine, init_database,
     get_market_data, bulk_insert_market_data, seed_initial_data, migrate_machines_to_portfolios,
     get_all_markets, get_instruments_by_market, get_all_portfolios, get_portfolio_by_id,
     create_portfolio_db, add_instrument_to_portfolio, get_portfolio_instruments, seed_portfolio_0,
-    create_market, update_market, delete_market,
-    create_instrument, update_instrument, delete_instrument,
-    update_portfolio, delete_portfolio,
+    create_market, update_market, delete_market, get_market_by_id,
+    create_instrument, update_instrument, delete_instrument, get_instrument_by_id,
+    update_portfolio, delete_portfolio, get_portfolios_by_instrument,
     delete_market_data, delete_trades_for_portfolio
 )
 from data_generator import generate_market_data, generate_trade_data
@@ -137,10 +137,96 @@ if st.session_state.confirm_delete:
     
     st.stop()
 
+# ========== Breadcrumb Navigation Component ==========
+def render_breadcrumb():
+    """Render clickable breadcrumb navigation showing current location in hierarchy"""
+    breadcrumb_parts = []
+    breadcrumb_keys = []
+    breadcrumb_modes = []
+
+    # Always start with Markets
+    breadcrumb_parts.append("🏠 Markets")
+    breadcrumb_keys.append("bc_markets")
+    breadcrumb_modes.append("markets")
+
+    # Add selected market if exists
+    if st.session_state.selected_market_id:
+        try:
+            market = get_market_by_id(st.session_state.selected_market_id)
+            if market:
+                breadcrumb_parts.append(f"📊 {market['name']}")
+                breadcrumb_keys.append("bc_market")
+                breadcrumb_modes.append("instruments")
+        except:
+            pass
+
+    # Add selected instrument if exists
+    if st.session_state.selected_instrument_id:
+        try:
+            instrument = get_instrument_by_id(st.session_state.selected_instrument_id)
+            if instrument:
+                breadcrumb_parts.append(f"📈 {instrument['symbol']} {instrument['timeframe']}")
+                breadcrumb_keys.append("bc_instrument")
+                breadcrumb_modes.append("portfolios")
+        except:
+            pass
+
+    # Add current mode-specific label
+    if st.session_state.navigation_mode == 'portfolios' and st.session_state.selected_instrument_id:
+        breadcrumb_parts.append("💼 Portfolios")
+        breadcrumb_keys.append("bc_portfolios")
+        breadcrumb_modes.append("portfolios")
+
+    if st.session_state.active_machine_id and st.session_state.navigation_mode == 'analytics':
+        try:
+            portfolio = get_portfolio_by_id(st.session_state.active_machine_id)
+            if portfolio:
+                breadcrumb_parts.append(f"💼 {portfolio['name']}")
+                breadcrumb_keys.append("bc_portfolio")
+                breadcrumb_modes.append("portfolios")
+                breadcrumb_parts.append("📊 Analytics")
+                breadcrumb_keys.append("bc_analytics")
+                breadcrumb_modes.append("analytics")
+        except:
+            pass
+
+    # Render breadcrumb with separators
+    if len(breadcrumb_parts) > 0:
+        num_parts = len(breadcrumb_parts)
+        num_cols = num_parts * 2 - 1  # parts + separators
+        cols = st.columns([1] * num_cols)
+
+        for i in range(num_parts):
+            with cols[i * 2]:
+                if st.button(breadcrumb_parts[i], key=breadcrumb_keys[i], use_container_width=True):
+                    # Handle breadcrumb navigation
+                    if i == 0:  # Markets
+                        st.session_state.navigation_mode = 'markets'
+                        st.session_state.selected_market_id = None
+                        st.session_state.selected_instrument_id = None
+                        st.session_state.active_machine_id = None
+                    elif breadcrumb_modes[i] == 'instruments':  # Market selected
+                        st.session_state.navigation_mode = 'instruments'
+                        st.session_state.selected_instrument_id = None
+                        st.session_state.active_machine_id = None
+                    elif breadcrumb_modes[i] == 'portfolios':  # Instrument or Portfolios
+                        st.session_state.navigation_mode = 'portfolios'
+                        st.session_state.active_machine_id = None
+                    st.rerun()
+
+            # Add separator except for last item
+            if i < num_parts - 1:
+                with cols[i * 2 + 1]:
+                    st.markdown("<div style='text-align: center; padding-top: 8px;'>›</div>", unsafe_allow_html=True)
+
+        st.divider()
+
+
 # ========== NEW NAVIGATION: Markets → Instruments → Portfolios ==========
 
 # Navigation Mode: Markets
 if st.session_state.navigation_mode == 'markets':
+    render_breadcrumb()
     st.header("📈 Markets")
     st.markdown("Select a market to view its instruments and portfolios:")
     
@@ -247,6 +333,8 @@ if st.session_state.navigation_mode == 'markets':
 
 # Navigation Mode: Instruments
 if st.session_state.navigation_mode == 'instruments':
+    render_breadcrumb()
+
     # Sidebar navigation
     with st.sidebar:
         if st.button("← Back to Markets"):
@@ -321,27 +409,108 @@ if st.session_state.navigation_mode == 'instruments':
         with cols[idx % 2]:
             with st.expander(f"**{symbol}** - {data['name']}", expanded=False):
                 for inst in sorted(data['instruments'], key=lambda x: x['timeframe']):
-                    col_tf, col_edit, col_del = st.columns([3, 1, 1])
-                    col_tf.write(f"⏱️ {inst['timeframe']}")
-                    if col_edit.button("✏️", key=f"edit_inst_{inst['id']}", help="Edit"):
+                    st.markdown(f"#### ⏱️ {inst['timeframe']}")
+
+                    # Get portfolio count for this instrument
+                    portfolio_count = len(get_portfolios_by_instrument(inst['id']))
+                    st.caption(f"📊 {portfolio_count} portfolios")
+
+                    col_view, col_edit, col_del = st.columns([2, 1, 1])
+
+                    if col_view.button(f"📊 Portfolios", key=f"view_port_{inst['id']}", use_container_width=True):
+                        st.session_state.selected_instrument_id = inst['id']
+                        st.session_state.navigation_mode = 'portfolios'
+                        st.rerun()
+
+                    if col_edit.button("✏️", key=f"edit_inst_{inst['id']}", help="Edit", use_container_width=True):
                         st.session_state.edit_instrument_id = inst['id']
                         st.session_state.show_instrument_creator = False
                         st.rerun()
-                    if col_del.button("🗑️", key=f"del_inst_{inst['id']}", help="Delete"):
+
+                    if col_del.button("🗑️", key=f"del_inst_{inst['id']}", help="Delete", use_container_width=True):
                         st.session_state.confirm_delete = ('instrument', inst['id'], inst['name'])
                         st.rerun()
-    
+
+                    st.divider()
+
     st.divider()
-    
-    # Button to view portfolios
-    if st.button("➡️ View Portfolios", use_container_width=True, type="primary"):
-        st.session_state.navigation_mode = 'portfolios'
-        st.rerun()
-    
+
+    # Market Data Management Section
+    st.subheader("📊 Market Data Management")
+    st.markdown("Upload OHLCV candlestick data for instruments in this market. Market data is shared across all portfolios using the same instrument.")
+
+    # Select instrument for market data upload
+    if instruments:
+        with st.expander("📤 Upload Market Data (OHLCV)", expanded=False):
+            selected_inst_for_data = st.selectbox(
+                "Select Instrument",
+                options=instruments,
+                format_func=lambda x: f"{x['symbol']} ({x['timeframe']})",
+                key="market_data_instrument_select"
+            )
+
+            st.caption("**Required CSV columns:** timestamp, open, high, low, close, volume")
+
+            market_csv = st.file_uploader(
+                "Upload Market Data CSV",
+                type=['csv'],
+                help="Upload OHLCV candlestick data",
+                key="upload_market_data_csv"
+            )
+
+            if market_csv:
+                try:
+                    preview_df = pd.read_csv(market_csv, nrows=10)
+                    st.success(f"✅ CSV loaded: {len(preview_df)} rows previewed")
+                    st.dataframe(preview_df, use_container_width=True)
+
+                    # Check required columns
+                    required_cols = ['timestamp', 'open', 'high', 'low', 'close', 'volume']
+                    missing_cols = [col for col in required_cols if col not in preview_df.columns]
+                    if missing_cols:
+                        st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
+                    else:
+                        st.info("✅ All required columns found")
+
+                        if st.button("Import Market Data", type="primary"):
+                            try:
+                                market_csv.seek(0)
+                                market_df = pd.read_csv(market_csv)
+                                # Add instrument_id to the dataframe
+                                market_df['instrument_id'] = selected_inst_for_data['id']
+                                bulk_insert_market_data(market_df)
+                                st.success(f"✅ Imported {len(market_df)} candles for {selected_inst_for_data['symbol']} {selected_inst_for_data['timeframe']}!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error importing market data: {str(e)}")
+                except Exception as e:
+                    st.error(f"❌ Error reading CSV: {str(e)}")
+
+        with st.expander("🗑️ Delete Market Data", expanded=False):
+            if instruments:
+                delete_inst = st.selectbox(
+                    "Select Instrument to Delete Market Data",
+                    options=instruments,
+                    format_func=lambda x: f"{x['symbol']} ({x['timeframe']})",
+                    key="delete_market_data_select"
+                )
+
+                if st.button("🗑️ Delete All Market Data for This Instrument", type="secondary"):
+                    try:
+                        delete_market_data(delete_inst['id'])
+                        st.success(f"✅ Market data deleted for {delete_inst['symbol']} {delete_inst['timeframe']}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+
+    st.divider()
+
     st.stop()
 
 # Navigation Mode: Portfolios
 if st.session_state.navigation_mode == 'portfolios':
+    render_breadcrumb()
+
     # Sidebar navigation
     with st.sidebar:
         if st.button("← Back to Instruments"):
@@ -366,28 +535,70 @@ if st.session_state.navigation_mode == 'portfolios':
     # Show Create Portfolio Form
     if st.session_state.show_portfolio_creator and st.session_state.edit_portfolio_id is None:
         st.markdown("### ➕ Create New Portfolio")
+        st.markdown(f"**For instrument:** {instrument['symbol']} {instrument['timeframe']}")
+
         with st.form("create_portfolio_form"):
             col1, col2 = st.columns(2)
             with col1:
-                portfolio_name = st.text_input("Portfolio Name", placeholder="e.g., Growth Portfolio")
-                starting_capital = st.number_input("Starting Capital ($)", min_value=1000, value=100000, step=1000)
+                portfolio_name = st.text_input("Portfolio Name*", placeholder="e.g., Growth Portfolio")
+                starting_capital = st.number_input("Starting Capital ($)*", min_value=1000, value=100000, step=1000)
             with col2:
-                status = st.selectbox("Status", ['live', 'simulated'])
+                status = st.selectbox("Status*", ['live', 'simulated'])
                 description = st.text_area("Description (optional)", placeholder="Brief description")
-            
+
+            st.divider()
+            st.subheader("📤 Import Initial Trade Data (Optional)")
+            st.caption("Upload a CSV file with your trade history to populate this portfolio")
+            trades_csv = st.file_uploader(
+                "Upload Trades CSV",
+                type=['csv'],
+                help="Required columns: entry_time, exit_time, entry_price, exit_price, pnl, direction, instrument",
+                key="create_portfolio_csv"
+            )
+
+            # Show CSV preview if uploaded
+            if trades_csv:
+                try:
+                    preview_df = pd.read_csv(trades_csv, nrows=10)
+                    st.success(f"✅ CSV loaded: {len(preview_df)} rows previewed (showing first 10)")
+                    st.dataframe(preview_df, use_container_width=True)
+
+                    # Check required columns
+                    required_cols = ['entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl', 'direction', 'instrument']
+                    missing_cols = [col for col in required_cols if col not in preview_df.columns]
+                    if missing_cols:
+                        st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
+                    else:
+                        st.info("✅ All required columns found")
+                except Exception as e:
+                    st.error(f"❌ Error reading CSV: {str(e)}")
+
             col_create, col_cancel = st.columns(2)
-            create_btn = col_create.form_submit_button("✅ Create", use_container_width=True, type="primary")
+            create_btn = col_create.form_submit_button("✅ Create Portfolio", use_container_width=True, type="primary")
             cancel_btn = col_cancel.form_submit_button("❌ Cancel", use_container_width=True)
-            
+
             if create_btn and portfolio_name:
                 portfolio_id = str(uuid_lib.uuid4())
                 try:
+                    # Create portfolio
                     create_portfolio_db(portfolio_id, portfolio_name, starting_capital, status, description)
-                    st.success(f"✅ Portfolio '{portfolio_name}' created!")
+
+                    # Link portfolio to instrument
+                    add_instrument_to_portfolio(portfolio_id, st.session_state.selected_instrument_id, 100.0)
+
+                    # Import trades if CSV provided
+                    if trades_csv:
+                        trades_csv.seek(0)  # Reset file pointer
+                        trades_df = pd.read_csv(trades_csv)
+                        bulk_insert_trades(portfolio_id, trades_df)
+                        st.success(f"✅ Portfolio '{portfolio_name}' created with {len(trades_df)} trades!")
+                    else:
+                        st.success(f"✅ Portfolio '{portfolio_name}' created!")
+
                     st.session_state.show_portfolio_creator = False
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
+                    st.error(f"❌ Error creating portfolio: {str(e)}")
             elif cancel_btn:
                 st.session_state.show_portfolio_creator = False
                 st.rerun()
@@ -425,12 +636,27 @@ if st.session_state.navigation_mode == 'portfolios':
                     st.session_state.edit_portfolio_id = None
                     st.rerun()
             st.divider()
-    
-    # Get all portfolios
-    all_portfolios = get_all_portfolios()
-    
+
+    # Ensure instrument is selected
+    if not st.session_state.selected_instrument_id:
+        st.error("⚠️ No instrument selected. Please select an instrument first.")
+        if st.button("← Go Back to Instruments"):
+            st.session_state.navigation_mode = 'instruments'
+            st.rerun()
+        st.stop()
+
+    # Get portfolios for selected instrument
+    instrument = get_instrument_by_id(st.session_state.selected_instrument_id)
+    if not instrument:
+        st.error("⚠️ Instrument not found.")
+        st.stop()
+
+    st.header(f"💼 Portfolios for {instrument['symbol']} {instrument['timeframe']}")
+    all_portfolios = get_portfolios_by_instrument(st.session_state.selected_instrument_id)
+
     if not all_portfolios:
-        st.info("No portfolios found. Create your first portfolio to get started!")
+        st.info(f"📊 No portfolios found for {instrument['symbol']} {instrument['timeframe']}.")
+        st.markdown(f"**Create your first portfolio** for this instrument to get started!")
     else:
         st.markdown(f"**Total Portfolios:** {len(all_portfolios)}")
         st.divider()
@@ -486,6 +712,8 @@ if st.session_state.navigation_mode == 'portfolios':
 
 # Navigation Mode: Analytics (all the existing features)
 if st.session_state.navigation_mode == 'analytics':
+    render_breadcrumb()
+
     # Sidebar navigation
     with st.sidebar:
         if st.button("← Back to Portfolios"):
@@ -496,37 +724,102 @@ if st.session_state.navigation_mode == 'analytics':
         st.subheader("📁 Data Management")
         
         # Trade Data Upload
-        with st.expander("📤 Import Trades"):
+        with st.expander("📤 Add More Trades"):
+            st.caption("Upload additional trade data to append to this portfolio")
             trades_csv = st.file_uploader("Upload Trades CSV", type=['csv'], key="import_trades_csv")
-            if trades_csv and st.button("Import", key="import_trades_btn"):
+
+            if trades_csv:
                 try:
-                    import pandas as pd
-                    trades_df = pd.read_csv(trades_csv)
-                    bulk_insert_trades(st.session_state.active_machine_id, trades_df)
-                    st.success(f"✅ Imported {len(trades_df)} trades!")
-                    st.rerun()
+                    preview_df = pd.read_csv(trades_csv, nrows=10)
+                    st.success(f"✅ CSV loaded: {len(preview_df)} rows previewed")
+                    st.dataframe(preview_df, use_container_width=True)
+
+                    if st.button("Import Trades", key="import_trades_btn", type="primary"):
+                        trades_csv.seek(0)
+                        trades_df = pd.read_csv(trades_csv)
+                        bulk_insert_trades(st.session_state.active_machine_id, trades_df)
+                        st.success(f"✅ Imported {len(trades_df)} trades!")
+                        st.rerun()
                 except Exception as e:
-                    st.error(f"Error: {str(e)}")
-        
-        # Market Data Upload
-        with st.expander("📤 Import Market Data"):
-            market_csv = st.file_uploader("Upload Market Data CSV", type=['csv'], key="import_market_csv")
-            st.caption("Required: instrument, timeframe, timestamp, open, high, low, close, volume")
-            if market_csv and st.button("Import", key="import_market_btn"):
-                try:
-                    import pandas as pd
-                    market_df = pd.read_csv(market_csv)
-                    bulk_insert_market_data(market_df)
-                    st.success(f"✅ Imported {len(market_df)} candles!")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
-        
+                    st.error(f"❌ Error: {str(e)}")
+
         # Delete Data
         with st.expander("🗑️ Delete Data"):
-            if st.button("Delete All Trades", key="del_trades_btn", use_container_width=True):
+            if st.button("🗑️ Delete All Trades", key="del_trades_btn", use_container_width=True, type="secondary"):
                 st.session_state.confirm_delete = ('trades', st.session_state.active_machine_id, 'all trades')
                 st.rerun()
-    
+
+    # Get portfolio and trades
+    portfolio = get_portfolio_by_id(st.session_state.active_machine_id)
+    if not portfolio:
+        st.error("⚠️ Portfolio not found")
+        st.stop()
+
+    trades_df = get_trades_for_machine(st.session_state.active_machine_id)
+
+    # Empty State - No Trades Yet
+    if trades_df.empty:
+        st.info("📊 No Trade Data Yet")
+        st.markdown(f"""
+        ### Get Started with Analytics
+
+        Portfolio **{portfolio['name']}** doesn't have any trade data yet.
+
+        **To see analytics, you need to:**
+        1. Download your trade history from your broker
+        2. Format it as a CSV file with required columns
+        3. Upload it using the sidebar
+
+        **Required CSV columns:**
+        - `entry_time` - Trade entry timestamp
+        - `exit_time` - Trade exit timestamp
+        - `entry_price` - Entry price
+        - `exit_price` - Exit price
+        - `pnl` - Profit/Loss for the trade
+        - `direction` - Trade direction (Long/Short)
+        - `instrument` - Instrument symbol
+
+        ---
+        """)
+
+        # Large upload area for better UX
+        st.subheader("📤 Upload Your Trade History")
+        trades_csv_empty = st.file_uploader(
+            "Drop your trades CSV file here",
+            type=['csv'],
+            help="Upload your trade history to see analytics",
+            key="empty_state_csv_upload"
+        )
+
+        if trades_csv_empty:
+            try:
+                preview_df = pd.read_csv(trades_csv_empty, nrows=10)
+                st.success(f"✅ CSV loaded successfully!")
+                st.markdown("**Preview (first 10 rows):**")
+                st.dataframe(preview_df, use_container_width=True)
+
+                # Check required columns
+                required_cols = ['entry_time', 'exit_time', 'entry_price', 'exit_price', 'pnl', 'direction', 'instrument']
+                missing_cols = [col for col in required_cols if col not in preview_df.columns]
+
+                if missing_cols:
+                    st.warning(f"⚠️ Missing required columns: {', '.join(missing_cols)}")
+                    st.info("Please update your CSV file to include all required columns.")
+                else:
+                    st.success("✅ All required columns found!")
+
+                    if st.button("Import Trades and View Analytics", type="primary", use_container_width=True):
+                        trades_csv_empty.seek(0)
+                        full_df = pd.read_csv(trades_csv_empty)
+                        bulk_insert_trades(st.session_state.active_machine_id, full_df)
+                        st.success(f"🎉 Successfully imported {len(full_df)} trades!")
+                        st.balloons()
+                        st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error reading CSV: {str(e)}")
+
+        st.stop()  # Don't show analytics tabs if no data
+
     # Continue with all the existing analytics features below...
     # (Let the rest of the app.py code run normally)
 
