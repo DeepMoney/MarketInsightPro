@@ -838,10 +838,31 @@ if st.session_state.navigation_mode == 'analytics':
 
         st.stop()  # Don't show analytics tabs if no data
 
-    # Continue with all the existing analytics features below...
-    # (Let the rest of the app.py code run normally)
+    # Get portfolio details for analytics
+    active_machine = portfolio
+    active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
 
-if st.session_state.show_machine_creator:
+    # Display portfolio header
+    st.header(f"📊 Analytics: {portfolio['name']}")
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Starting Capital", f"${portfolio['starting_capital']:,.0f}")
+    with col2:
+        st.metric("Status", portfolio['status'].title())
+    with col3:
+        total_pnl = trades_df['pnl'].sum()
+        st.metric("Total P&L", f"${total_pnl:,.2f}")
+    with col4:
+        st.metric("Total Trades", len(trades_df))
+
+    st.divider()
+
+    # Analytics tabs start here (continuing to existing tabs below)
+    # The rest of the analytics code continues...
+
+# ========== OLD MACHINE CODE REMOVED - EVERYTHING BELOW IS ANALYTICS TABS ==========
+
+if False and st.session_state.show_machine_creator:
     st.markdown(f"### ➕ Create New Machine for {st.session_state.selected_market}")
     
     with st.form("machine_creator_form"):
@@ -1133,10 +1154,7 @@ with st.sidebar:
         
         st.caption(f"💡 Market data for {st.session_state.selected_market} is automatically generated when creating machines")
 
-if not st.session_state.active_machine_id or not active_machine:
-    st.info("👈 Please create a machine to begin analysis")
-    st.stop()
-
+# Analytics tabs (portfolio and trades are already validated in new navigation above)
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📊 Comparison Matrix",
     "🎛️ Create Scenario",
