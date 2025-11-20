@@ -838,9 +838,15 @@ if st.session_state.navigation_mode == 'analytics':
 
         st.stop()  # Don't show analytics tabs if no data
 
-    # Get portfolio details for analytics
-    active_machine = portfolio
+    # Get portfolio and instrument details for analytics
+    active_machine = portfolio  # For backwards compatibility with scenarios code
     active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
+
+    # Get the instrument for this portfolio (to access timeframe)
+    instrument = get_instrument_by_id(st.session_state.selected_instrument_id) if st.session_state.selected_instrument_id else None
+    if not instrument:
+        st.error("⚠️ Instrument information not found. Please navigate back and select an instrument.")
+        st.stop()
 
     # Display portfolio header
     st.header(f"📊 Analytics: {portfolio['name']}")
@@ -1037,40 +1043,43 @@ if st.session_state.show_machine_editor and st.session_state.active_machine_id:
     
     st.stop()
 
-active_machine = None
-active_scenarios = []
+# OLD MACHINE-BASED CODE - DISABLED FOR NEW PORTFOLIO NAVIGATION
+if False:  # This old code is disabled - new navigation handles this above
+    active_machine = None
+    active_scenarios = []
 
-if st.session_state.active_machine_id:
-    from database import get_machine_by_id
-    active_machine = get_machine_by_id(st.session_state.active_machine_id)
-    
-    if active_machine:
-        st.info(f"**Active Machine**: {'🟢' if active_machine['status'] == 'live' else '⚪'} {active_machine['name']} | ${active_machine['starting_capital']:,.0f} | {active_machine['timeframe']}")
-        
-        active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
-        
-        if not active_scenarios:
-            trades_df = get_trades_for_machine(st.session_state.active_machine_id)
-            if not trades_df.empty:
-                from scenario_engine import create_baseline_scenario
-                from database import save_scenario
-                
-                baseline = create_baseline_scenario(trades_df, active_machine['starting_capital'])
-                scenario_id = save_scenario(
-                    st.session_state.active_machine_id,
-                    baseline['name'],
-                    True,
-                    baseline['params'],  # Fixed: was 'parameters', should be 'params'
-                    baseline.get('metrics'),
-                    baseline.get('modified_trades')
-                )
-                active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
-    else:
-        st.warning("Selected machine not found in database")
-        st.session_state.active_machine_id = None
+    if st.session_state.active_machine_id:
+        from database import get_machine_by_id
+        active_machine = get_machine_by_id(st.session_state.active_machine_id)
 
-with st.sidebar:
-    if st.session_state.selected_market:
+        if active_machine:
+            st.info(f"**Active Machine**: {'🟢' if active_machine['status'] == 'live' else '⚪'} {active_machine['name']} | ${active_machine['starting_capital']:,.0f} | {active_machine['timeframe']}")
+
+            active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
+
+            if not active_scenarios:
+                trades_df = get_trades_for_machine(st.session_state.active_machine_id)
+                if not trades_df.empty:
+                    from scenario_engine import create_baseline_scenario
+                    from database import save_scenario
+
+                    baseline = create_baseline_scenario(trades_df, active_machine['starting_capital'])
+                    scenario_id = save_scenario(
+                        st.session_state.active_machine_id,
+                        baseline['name'],
+                        True,
+                        baseline['params'],  # Fixed: was 'parameters', should be 'params'
+                        baseline.get('metrics'),
+                        baseline.get('modified_trades')
+                    )
+                    active_scenarios = get_scenarios_for_machine(st.session_state.active_machine_id)
+        else:
+            st.warning("Selected machine not found in database")
+            st.session_state.active_machine_id = None
+
+if False:  # Old sidebar code disabled
+    with st.sidebar:
+        if st.session_state.selected_market:
         st.markdown(f"### 📍 {st.session_state.selected_market} Market")
         
         if st.button("← Back to Markets", use_container_width=True):
@@ -1321,9 +1330,9 @@ with tab2:
                 }
                 
                 trades_df = get_trades_for_machine(st.session_state.active_machine_id)
-                
-                mes_market_df = get_market_data('MES', active_machine['timeframe'])
-                mnq_market_df = get_market_data('MNQ', active_machine['timeframe'])
+
+                mes_market_df = get_market_data('MES', instrument['timeframe'])
+                mnq_market_df = get_market_data('MNQ', instrument['timeframe'])
                 combined_market = pd.concat([mes_market_df, mnq_market_df])
                 
                 new_scenario = create_scenario(
@@ -1425,9 +1434,9 @@ with tab5:
         if scenario:
             all_trades = pd.DataFrame(scenario['modified_trades']) if scenario.get('modified_trades') else pd.DataFrame()
             trades = all_trades[all_trades['instrument'] == selected_instrument] if not all_trades.empty else pd.DataFrame()
-            
-            market = get_market_data(selected_instrument, active_machine['timeframe'])
-            
+
+            market = get_market_data(selected_instrument, instrument['timeframe'])
+
             if not market.empty:
                 market['timestamp'] = pd.to_datetime(market['timestamp'])
                 date_range = st.date_input(
@@ -1436,7 +1445,7 @@ with tab5:
                     key="chart_date_range"
                 )
             else:
-                st.warning(f"No market data available for {selected_instrument} on {active_machine['timeframe']} timeframe. Please generate market data first.")
+                st.warning(f"No market data available for {selected_instrument} on {instrument['timeframe']} timeframe. Please generate market data first.")
                 st.stop()
             
             if len(date_range) == 2:
