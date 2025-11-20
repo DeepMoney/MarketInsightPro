@@ -363,28 +363,46 @@ if st.session_state.navigation_mode == 'instruments':
     # Show Create Instrument Form
     if st.session_state.show_instrument_creator and st.session_state.edit_instrument_id is None:
         st.markdown("### ➕ Create New Instrument")
+        st.info("💡 Select multiple timeframes to create them all at once")
+
         with st.form("create_instrument_form"):
             col1, col2 = st.columns(2)
             with col1:
-                symbol = st.text_input("Symbol", placeholder="e.g., MES, AAPL")
-                timeframe = st.selectbox("Timeframe", ['5min', '15min', '30min', '1H', '4H', 'Daily'])
+                symbol = st.text_input("Symbol*", placeholder="e.g., MES, AAPL")
+                name = st.text_input("Name*", placeholder="e.g., Micro E-mini S&P 500")
             with col2:
-                name = st.text_input("Name", placeholder="e.g., Micro E-mini S&P 500")
+                timeframes = st.multiselect(
+                    "Timeframes* (select multiple)",
+                    options=['5min', '15min', '30min', '1H', '4H', 'Daily'],
+                    default=['15min'],
+                    help="Select all timeframes you want to create for this instrument"
+                )
                 description = st.text_input("Description (optional)")
-            
+
             col_create, col_cancel = st.columns(2)
             create_btn = col_create.form_submit_button("✅ Create", use_container_width=True, type="primary")
             cancel_btn = col_cancel.form_submit_button("❌ Cancel", use_container_width=True)
-            
-            if create_btn and symbol and name:
-                instrument_id = f"{symbol}_{timeframe}" if timeframe != '15min' else symbol
-                try:
-                    create_instrument(instrument_id, current_market['id'], symbol, timeframe, name, description)
-                    st.success(f"✅ Instrument '{name}' created!")
+
+            if create_btn and symbol and name and timeframes:
+                created_count = 0
+                errors = []
+
+                for timeframe in timeframes:
+                    instrument_id = f"{symbol}_{timeframe}" if timeframe != '15min' else symbol
+                    try:
+                        create_instrument(instrument_id, current_market['id'], symbol, timeframe, name, description)
+                        created_count += 1
+                    except Exception as e:
+                        errors.append(f"{timeframe}: {str(e)}")
+
+                if created_count > 0:
+                    st.success(f"✅ Created {created_count} instrument(s) for {symbol}!")
+                if errors:
+                    st.warning(f"⚠️ Some timeframes failed:\n" + "\n".join(errors))
+
+                if created_count > 0:
                     st.session_state.show_instrument_creator = False
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
             elif cancel_btn:
                 st.session_state.show_instrument_creator = False
                 st.rerun()
