@@ -137,6 +137,134 @@ if st.session_state.confirm_delete:
     
     st.stop()
 
+# ========== Sidebar Navigation Component ==========
+def render_sidebar_navigation():
+    """Render sidebar navigation for quick access to Markets, Instruments, Portfolios"""
+    with st.sidebar:
+        st.header("🧭 Quick Navigation")
+        st.markdown("---")
+
+        # Markets Section
+        with st.expander("🏠 Markets", expanded=(st.session_state.navigation_mode == 'markets')):
+            markets = get_all_markets()
+
+            if st.button("➕ Create New Market", key="sidebar_create_market", use_container_width=True, type="primary"):
+                st.session_state.show_market_creator = True
+                st.session_state.edit_market_id = None
+                st.session_state.navigation_mode = 'markets'
+                st.rerun()
+
+            if markets:
+                st.markdown("#### Select Market:")
+                for market in markets:
+                    col1, col2 = st.columns([4, 1])
+                    with col1:
+                        btn_type = "primary" if st.session_state.selected_market_id == market['id'] else "secondary"
+                        if st.button(
+                            f"📊 {market['name']}",
+                            key=f"nav_market_{market['id']}",
+                            use_container_width=True,
+                            type=btn_type if st.session_state.selected_market_id == market['id'] else "secondary"
+                        ):
+                            st.session_state.selected_market_id = market['id']
+                            st.session_state.navigation_mode = 'instruments'
+                            st.session_state.selected_instrument_id = None
+                            st.rerun()
+                    with col2:
+                        if st.button("✏️", key=f"nav_edit_market_{market['id']}", help="Edit Market"):
+                            st.session_state.edit_market_id = market['id']
+                            st.session_state.show_market_creator = True
+                            st.session_state.navigation_mode = 'markets'
+                            st.rerun()
+            else:
+                st.info("No markets yet. Create one!")
+
+        # Instruments Section
+        with st.expander("📈 Instruments", expanded=(st.session_state.navigation_mode == 'instruments')):
+            if st.session_state.selected_market_id:
+                instruments = get_instruments_by_market(st.session_state.selected_market_id)
+                market = get_market_by_id(st.session_state.selected_market_id)
+
+                st.caption(f"Market: **{market['name']}**" if market else "Market selected")
+
+                if st.button("➕ Create Instrument", key="sidebar_create_instrument", use_container_width=True, type="primary"):
+                    st.session_state.show_instrument_creator = True
+                    st.session_state.edit_instrument_id = None
+                    st.session_state.navigation_mode = 'instruments'
+                    st.rerun()
+
+                if instruments:
+                    st.markdown("#### Select Instrument:")
+                    for inst in instruments:
+                        col1, col2 = st.columns([4, 1])
+                        with col1:
+                            btn_label = f"📈 {inst['symbol']} ({inst['timeframe']})"
+                            if st.button(
+                                btn_label,
+                                key=f"nav_inst_{inst['id']}",
+                                use_container_width=True,
+                                type="primary" if st.session_state.selected_instrument_id == inst['id'] else "secondary"
+                            ):
+                                st.session_state.selected_instrument_id = inst['id']
+                                st.session_state.navigation_mode = 'portfolios'
+                                st.rerun()
+                        with col2:
+                            if st.button("✏️", key=f"nav_edit_inst_{inst['id']}", help="Edit Instrument"):
+                                st.session_state.edit_instrument_id = inst['id']
+                                st.session_state.navigation_mode = 'instruments'
+                                st.rerun()
+                else:
+                    st.info("No instruments. Create one!")
+            else:
+                st.info("👆 Select a market first")
+
+        # Portfolios Section
+        with st.expander("💼 Portfolios", expanded=(st.session_state.navigation_mode in ['portfolios', 'analytics'])):
+            if st.session_state.selected_instrument_id:
+                portfolios = get_portfolios_by_instrument(st.session_state.selected_instrument_id)
+                instrument = get_instrument_by_id(st.session_state.selected_instrument_id)
+
+                st.caption(f"Instrument: **{instrument['symbol']} {instrument['timeframe']}**" if instrument else "Instrument selected")
+
+                if st.button("➕ Create Portfolio", key="sidebar_create_portfolio", use_container_width=True, type="primary"):
+                    st.session_state.show_portfolio_creator = True
+                    st.session_state.edit_portfolio_id = None
+                    st.session_state.navigation_mode = 'portfolios'
+                    st.rerun()
+
+                if portfolios:
+                    st.markdown("#### Portfolios:")
+                    for portfolio in portfolios:
+                        # Portfolio name button
+                        if st.button(
+                            f"💼 {portfolio['name']}",
+                            key=f"nav_port_{portfolio['id']}",
+                            use_container_width=True,
+                            type="secondary"
+                        ):
+                            st.session_state.navigation_mode = 'portfolios'
+                            st.rerun()
+
+                        # Action buttons for this portfolio
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            if st.button("📊 Analytics", key=f"nav_analytics_{portfolio['id']}", use_container_width=True):
+                                st.session_state.active_machine_id = portfolio['id']
+                                st.session_state.navigation_mode = 'analytics'
+                                st.rerun()
+                        with col2:
+                            if st.button("✏️ Edit", key=f"nav_edit_port_{portfolio['id']}", use_container_width=True):
+                                st.session_state.edit_portfolio_id = portfolio['id']
+                                st.session_state.show_portfolio_creator = False
+                                st.session_state.navigation_mode = 'portfolios'
+                                st.rerun()
+
+                        st.markdown("---")
+                else:
+                    st.info("No portfolios. Create one!")
+            else:
+                st.info("👆 Select an instrument first")
+
 # ========== Breadcrumb Navigation Component ==========
 def render_breadcrumb():
     """Render clickable breadcrumb navigation showing current location in hierarchy"""
@@ -226,18 +354,11 @@ def render_breadcrumb():
 
 # Navigation Mode: Markets
 if st.session_state.navigation_mode == 'markets':
+    render_sidebar_navigation()
     render_breadcrumb()
     st.header("📈 Markets")
     st.markdown("Select a market to view its instruments and portfolios:")
-    
-    # Sidebar management buttons
-    with st.sidebar:
-        st.subheader("Market Management")
-        if st.button("➕ Create Market", use_container_width=True):
-            st.session_state.show_market_creator = True
-            st.session_state.edit_market_id = None
-            st.rerun()
-    
+
     # Show Create Market Form
     if st.session_state.show_market_creator and st.session_state.edit_market_id is None:
         st.markdown("### ➕ Create New Market")
@@ -333,22 +454,9 @@ if st.session_state.navigation_mode == 'markets':
 
 # Navigation Mode: Instruments
 if st.session_state.navigation_mode == 'instruments':
+    render_sidebar_navigation()
     render_breadcrumb()
 
-    # Sidebar navigation
-    with st.sidebar:
-        if st.button("← Back to Markets"):
-            st.session_state.navigation_mode = 'markets'
-            st.session_state.selected_market_id = None
-            st.rerun()
-        
-        st.divider()
-        st.subheader("Instrument Management")
-        if st.button("➕ Create Instrument", use_container_width=True):
-            st.session_state.show_instrument_creator = True
-            st.session_state.edit_instrument_id = None
-            st.rerun()
-    
     # Get selected market
     markets = get_all_markets()
     current_market = next((m for m in markets if m['id'] == st.session_state.selected_market_id), None)
@@ -527,21 +635,9 @@ if st.session_state.navigation_mode == 'instruments':
 
 # Navigation Mode: Portfolios
 if st.session_state.navigation_mode == 'portfolios':
+    render_sidebar_navigation()
     render_breadcrumb()
 
-    # Sidebar navigation
-    with st.sidebar:
-        if st.button("← Back to Instruments"):
-            st.session_state.navigation_mode = 'instruments'
-            st.rerun()
-        
-        st.divider()
-        st.subheader("Portfolio Management")
-        if st.button("➕ Create Portfolio", use_container_width=True):
-            st.session_state.show_portfolio_creator = True
-            st.session_state.edit_portfolio_id = None
-            st.rerun()
-    
     # Get selected market for context
     markets = get_all_markets()
     current_market = next((m for m in markets if m['id'] == st.session_state.selected_market_id), None)
@@ -730,14 +826,11 @@ if st.session_state.navigation_mode == 'portfolios':
 
 # Navigation Mode: Analytics (all the existing features)
 if st.session_state.navigation_mode == 'analytics':
+    render_sidebar_navigation()
     render_breadcrumb()
 
-    # Sidebar navigation
+    # Sidebar - Data Management
     with st.sidebar:
-        if st.button("← Back to Portfolios"):
-            st.session_state.navigation_mode = 'portfolios'
-            st.rerun()
-        
         st.divider()
         st.subheader("📁 Data Management")
         
